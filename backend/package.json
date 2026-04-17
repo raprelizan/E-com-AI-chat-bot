@@ -1,0 +1,19 @@
+{
+  "name": "shopify-ai-voice-sales-assistant",
+  "version": "1.0.0",
+  "description": "Production-ready Shopify AI voice sales assistant backend",
+  "main": "server.js",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "check": "node --check server.js"
+  },
+  "dependencies": {
+    "@google/genai": "^1.2.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.6.1",
+    "express": "^4.21.2",
+    "google-tts-api": "^2.0.2"
+  }
+}
