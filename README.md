@@ -51,6 +51,17 @@ cp .env.example .env
 npm run start
 ```
 
+
+Example `.env` (replace with your own real key):
+
+```env
+PORT=8787
+GEMINI_API_KEY=REPLACE_WITH_YOUR_GEMINI_API_KEY
+GEMINI_MODEL=gemini-2.0-flash
+GEMINI_PROJECT_NAME=projects/102922610260
+GEMINI_PROJECT_NUMBER=102922610260
+```
+
 Default backend URL:
 
 - `http://localhost:8787`

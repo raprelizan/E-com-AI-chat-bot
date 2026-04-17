@@ -12,6 +12,8 @@ app.use(express.json({ limit: '1mb' }));
 
 const geminiApiKey = process.env.GEMINI_API_KEY;
 const ai = geminiApiKey ? new GoogleGenAI({ apiKey: geminiApiKey }) : null;
+const geminiProjectName = process.env.GEMINI_PROJECT_NAME || '';
+const geminiProjectNumber = process.env.GEMINI_PROJECT_NUMBER || '';
 
 const SYSTEM_PROMPT = `You are Nadia, a female Algerian luxury sales assistant for women's watches.
 Tone: soft, warm, persuasive, confident, concise.
@@ -105,7 +107,13 @@ function buildFallbackResponse(payload) {
 }
 
 app.get('/health', (_req, res) => {
-  res.json({ ok: true, service: 'shopify-ai-voice-assistant' });
+  res.json({
+    ok: true,
+    service: 'shopify-ai-voice-assistant',
+    geminiConfigured: Boolean(geminiApiKey),
+    project: geminiProjectName || undefined,
+    projectNumber: geminiProjectNumber || undefined
+  });
 });
 
 app.post('/chat', async (req, res) => {
