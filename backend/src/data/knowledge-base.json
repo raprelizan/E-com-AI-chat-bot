@@ -1,0 +1,53 @@
+{
+  "products": [
+    {
+      "id": "p-001",
+      "name": "LunaGlow Hydrating Serum",
+      "category": "skincare",
+      "description": "Daily serum with hyaluronic acid and niacinamide for deep hydration and brightening.",
+      "benefits": ["Hydrates for 24h", "Improves skin texture", "Lightweight for all skin types"],
+      "price": 39,
+      "currency": "USD",
+      "stock": 27,
+      "popularityScore": 95,
+      "socialProof": "4.8/5 from 1,240 verified reviews"
+    },
+    {
+      "id": "p-002",
+      "name": "AeroFit Smart Earbuds",
+      "category": "electronics",
+      "description": "Wireless earbuds with active noise cancellation and 36-hour battery life.",
+      "benefits": ["Clear calls", "Gym-ready water resistance", "Fast charging"],
+      "price": 89,
+      "currency": "USD",
+      "stock": 11,
+      "popularityScore": 88,
+      "socialProof": "Top 3 audio accessory this month"
+    },
+    {
+      "id": "p-003",
+      "name": "Atlas Pro Laptop Backpack",
+      "category": "accessories",
+      "description": "Anti-theft backpack with 17-inch laptop compartment and USB charging port.",
+      "benefits": ["Travel-safe design", "Organized storage", "Comfort for long commutes"],
+      "price": 64,
+      "currency": "USD",
+      "stock": 42,
+      "popularityScore": 81,
+      "socialProof": "Best seller in commuter gear"
+    }
+  ],
+  "faqs": [
+    {"id": "faq-1", "question": "How long does delivery take?", "answer": "Standard delivery is 3-5 business days in the US. Express delivery is 1-2 business days."},
+    {"id": "faq-2", "question": "Can I return products?", "answer": "Yes, we offer 30-day easy returns for unused items in original packaging."},
+    {"id": "faq-3", "question": "Do you provide discounts?", "answer": "Seasonal campaigns and bundle discounts are available depending on stock and promotions."}
+  ],
+  "policies": [
+    {"id": "pol-1", "title": "Return Policy", "content": "30-day return window. Refunds are processed within 5 business days after inspection."},
+    {"id": "pol-2", "title": "Warranty", "content": "Electronics include 12-month limited warranty for manufacturing defects."}
+  ],
+  "landing": [
+    {"id": "lp-1", "headline": "Premium essentials for modern lifestyle", "content": "We curate high-quality products that solve everyday problems with style and reliability."},
+    {"id": "lp-2", "headline": "Trusted by thousands", "content": "Our support team helps you choose the right product before and after purchase."}
+  ]
+}

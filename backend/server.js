@@ -3,6 +3,13 @@ import express from 'express';
 import cors from 'cors';
 import googleTTS from 'google-tts-api';
 
+import { KnowledgeService } from './src/services/knowledgeService.js';
+import { LocalVectorStore } from './src/services/vectorStore.js';
+import { CatalogFunctions } from './src/services/catalogFunctions.js';
+import { getUserMemory, saveInteraction, updateProfileFromMessage } from './src/services/memoryService.js';
+import { normalizePageContext } from './src/services/pageContextService.js';
+import { SalesAssistantEngine } from './src/orchestration/salesAssistantEngine.js';
+
 const app = express();
 const PORT = Number(process.env.PORT || 8787);
 
@@ -10,9 +17,10 @@ const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY || '';
 const ELEVENLABS_VOICE_ID = process.env.ELEVENLABS_VOICE_ID || 'EXAVITQu4vr4xnSDxMaL';
 const ELEVENLABS_MODEL_ID = process.env.ELEVENLABS_MODEL_ID || 'eleven_multilingual_v2';
 
-const ACTIONS = ['scroll_price', 'scroll_images', 'scroll_reviews', 'buy', 'none'];
-const INTENTS = ['curious', 'hesitant', 'price inquiry', 'quality inquiry', 'ready to buy'];
-const MAX_MEMORY = 5;
+const knowledgeService = new KnowledgeService();
+const vectorStore = new LocalVectorStore(knowledgeService.documents);
+const catalogFunctions = new CatalogFunctions(knowledgeService);
+const assistant = new SalesAssistantEngine({ vectorStore, catalogFunctions });
 
 const allowedOrigins = (process.env.ALLOWED_ORIGINS || '')
   .split(',')
@@ -34,7 +42,7 @@ function rateLimit(req, res, next) {
   const ip = req.headers['x-forwarded-for']?.toString().split(',')[0] || req.socket.remoteAddress || 'unknown';
   const now = Date.now();
   const windowMs = 60_000;
-  const maxReq = 45;
+  const maxReq = 60;
   const entry = rateBucket.get(ip) || { count: 0, resetAt: now + windowMs };
 
   if (now > entry.resetAt) {
@@ -52,120 +60,12 @@ function rateLimit(req, res, next) {
   return next();
 }
 
-function hashSeed(value = '') {
-  let hash = 0;
-  for (let i = 0; i < value.length; i += 1) {
-    hash = ((hash << 5) - hash) + value.charCodeAt(i);
-    hash |= 0;
-  }
-  return Math.abs(hash);
-}
-
-function pick(list, seed = '') {
-  if (!list?.length) return '';
-  return list[hashSeed(seed) % list.length];
-}
-
-function normalizeText(text = '') {
-  return String(text).replace(/\s+/g, ' ').trim().toLowerCase();
-}
-
-function repeatedReply(reply = '', memory = []) {
-  const normalized = normalizeText(reply);
-  if (!normalized) return false;
-  const lastAssistant = memory.filter((m) => m.role === 'assistant').slice(-2).map((m) => normalizeText(m.text || ''));
-  return lastAssistant.includes(normalized);
-}
-
-function detectIntent(message = '') {
-  const text = message.toLowerCase();
-
-  if (/(اشتري|شراء|نخلص|خلص|سلة|add to cart|buy|checkout)/i.test(text)) return 'ready to buy';
-  if (/(سعر|ثمن|بشحال|قداش|خصم|price|cost|discount)/i.test(text)) return 'price inquiry';
-  if (/(جودة|خامة|خام|ضمان|تقييم|review|quality|material|warranty)/i.test(text)) return 'quality inquiry';
-  if (/(مترددة|محتارة|مش متأكد|later|maybe|hesitant)/i.test(text)) return 'hesitant';
-  return 'curious';
-}
-
-function mapAction(intent, message = '') {
-  if (intent === 'ready to buy') return 'buy';
-  if (intent === 'price inquiry') return 'scroll_price';
-  if (intent === 'quality inquiry') return 'scroll_reviews';
-  if (/(صور|شكل|تصميم|لون|image|photo|design|style)/i.test(message)) return 'scroll_images';
-  return 'none';
-}
-
-function craftReply(intent, context = {}, message = '') {
-  const product = context.title || 'هاد الساعة';
-  const price = context.price || 'مبيّن في الصفحة';
-
-  if (/(مرحبا|السلام|اهلا|hello|hi)/i.test(message)) {
-    return pick([
-      'يا هلا 💜 أنا نادية. تحبي نبدأ بالسعر ولا الجودة ولا الصور؟',
-      'مرحبا بيك 🌸 نقدر نعاونك خطوة بخطوة حتى تختاري براحة.'
-    ], message);
-  }
-
-  if (/(شحن|توصيل|delivery|وصل)/i.test(message)) {
-    return 'أكيد، نقدر نعاونك بمعلومات التوصيل المتوفرة قبل إتمام الطلب.';
-  }
-
-  const variants = {
-    'ready to buy': [
-      `ممتاز ✨ ${product} اختيار راقٍ، نضيفه للسلة الآن؟`,
-      'جاهزين 👌 نكملك مباشرة بخطوة الشراء.'
-    ],
-    'price inquiry': [
-      `السعر ظاهر في الصفحة (${price})، نوديك مباشرة لمكانه؟`,
-      'أكيد، نقدر نوجّهك حالًا لقسم السعر.'
-    ],
-    'quality inquiry': [
-      'نقدر نوجّهك لقسم التقييمات والمراجعات باش تاخذي قرار واثق.',
-      'خليني نوريك الجودة والمراجعات بالتفصيل.'
-    ],
-    hesitant: [
-      'عادي خذي وقتك 💜 نقدر نبدأ بأبسط نقطة: السعر أو الصور.',
-      'ماكان حتى ضغط، نعاونك بهدوء حتى تكوني مرتاحة.'
-    ],
-    curious: [
-      `قوليلي وش تحبي تعرفي على ${product}: السعر، الصور، الجودة، ولا الشراء؟`,
-      'تحبي نبدأ بالسعر ولا بالصور؟'
-    ]
-  };
-
-  return pick(variants[intent] || variants.curious, message);
-}
-
-function runAssistant(payload = {}) {
-  const message = String(payload.message || '');
-  const memory = Array.isArray(payload.memory) ? payload.memory.slice(-MAX_MEMORY) : [];
-
-  let intent = detectIntent(message);
-  if (!INTENTS.includes(intent)) intent = 'curious';
-
-  let action = mapAction(intent, message);
-  if (!ACTIONS.includes(action)) action = 'none';
-
-  let reply = craftReply(intent, payload.context || {}, message);
-  if (repeatedReply(reply, memory)) {
-    reply = craftReply(intent, payload.context || {}, `${message}-${Date.now()}`);
-  }
-
-  return {
-    reply,
-    intent,
-    action,
-    reasoning: 'rule-engine',
-    source: 'rule-engine'
-  };
-}
-
 app.get('/health', (_req, res) => {
   res.json({
     ok: true,
-    service: 'shopify-ai-voice-sales-assistant',
-    engine: 'rule-engine',
-    elevenlabsConfigured: Boolean(ELEVENLABS_API_KEY),
+    service: 'ai-sales-system',
+    architecture: ['frontend-widget', 'backend-api', 'llm-orchestration', 'vector-store', 'business-logic'],
+    ragDocuments: knowledgeService.documents.length,
     allowedOrigins: allowedOrigins.length ? allowedOrigins : ['*']
   });
 });
@@ -176,12 +76,40 @@ app.post('/chat', rateLimit, (req, res) => {
     return res.status(400).json({ error: 'message is required' });
   }
 
-  return res.json(runAssistant(payload));
+  const userContext = {
+    userId: payload.user?.id || 'anonymous',
+    country: payload.user?.country || '',
+    trafficSource: payload.user?.trafficSource || '',
+    device: payload.user?.device || '',
+    behavior: payload.user?.behavior || ''
+  };
+
+  const pageContext = normalizePageContext(payload.context || {});
+  const memory = updateProfileFromMessage(userContext.userId, payload.message, pageContext);
+
+  const ai = assistant.run({
+    message: payload.message,
+    userContext,
+    memory,
+    pageContext
+  });
+
+  saveInteraction(userContext.userId, {
+    user: payload.message,
+    assistant: ai.reply,
+    timestamp: Date.now(),
+    recommendedProductId: ai.recommendation?.id || null
+  });
+
+  return res.json({
+    ...ai,
+    memory: getUserMemory(userContext.userId)
+  });
 });
 
 app.get('/tts', rateLimit, async (req, res) => {
   const text = String(req.query.text || '').trim();
-  const lang = String(req.query.lang || 'ar').toLowerCase();
+  const lang = String(req.query.lang || 'en').toLowerCase();
   if (!text) return res.status(400).json({ error: 'text query param required' });
 
   if (ELEVENLABS_API_KEY) {
@@ -191,7 +119,7 @@ app.get('/tts', rateLimit, async (req, res) => {
         method: 'POST',
         headers: {
           'xi-api-key': ELEVENLABS_API_KEY,
-          'Accept': 'audio/mpeg',
+          Accept: 'audio/mpeg',
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
@@ -217,7 +145,7 @@ app.get('/tts', rateLimit, async (req, res) => {
   }
 
   const allowed = new Set(['ar', 'fr', 'en']);
-  const safeLang = allowed.has(lang) ? lang : 'ar';
+  const safeLang = allowed.has(lang) ? lang : 'en';
 
   try {
     const url = googleTTS.getAudioUrl(text.slice(0, 180), {
@@ -232,5 +160,5 @@ app.get('/tts', rateLimit, async (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`Voice assistant backend running at http://localhost:${PORT}`);
+  console.log(`AI sales backend running at http://localhost:${PORT}`);
 });
