@@ -1,14 +1,11 @@
 import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
-import { GoogleGenAI } from '@google/genai';
 import googleTTS from 'google-tts-api';
 
 const app = express();
 const PORT = Number(process.env.PORT || 8787);
-const MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
-const API_KEY = process.env.GEMINI_API_KEY || '';
-const ai = API_KEY ? new GoogleGenAI({ apiKey: API_KEY }) : null;
+
 const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY || '';
 const ELEVENLABS_VOICE_ID = process.env.ELEVENLABS_VOICE_ID || 'EXAVITQu4vr4xnSDxMaL';
 const ELEVENLABS_MODEL_ID = process.env.ELEVENLABS_MODEL_ID || 'eleven_multilingual_v2';
@@ -69,10 +66,6 @@ function pick(list, seed = '') {
   return list[hashSeed(seed) % list.length];
 }
 
-function hasArabic(text = '') {
-  return /[\u0600-\u06FF]/.test(text);
-}
-
 function normalizeText(text = '') {
   return String(text).replace(/\s+/g, ' ').trim().toLowerCase();
 }
@@ -102,7 +95,7 @@ function mapAction(intent, message = '') {
   return 'none';
 }
 
-function fallbackReply(intent, context = {}, message = '') {
+function craftReply(intent, context = {}, message = '') {
   const product = context.title || 'هاد الساعة';
   const price = context.price || 'مبيّن في الصفحة';
 
@@ -143,115 +136,47 @@ function fallbackReply(intent, context = {}, message = '') {
   return pick(variants[intent] || variants.curious, message);
 }
 
-function safeParseJson(text = '') {
-  try {
-    return JSON.parse(text);
-  } catch {
-    const start = text.indexOf('{');
-    const end = text.lastIndexOf('}');
-    if (start !== -1 && end > start) {
-      try {
-        return JSON.parse(text.slice(start, end + 1));
-      } catch {
-        return null;
-      }
-    }
-    return null;
-  }
-}
-
-function sanitizeOutput(raw, payload) {
+function runAssistant(payload = {}) {
   const message = String(payload.message || '');
   const memory = Array.isArray(payload.memory) ? payload.memory.slice(-MAX_MEMORY) : [];
-  const inferredIntent = detectIntent(message);
 
-  let intent = INTENTS.includes(raw?.intent) ? raw.intent : inferredIntent;
-  let action = ACTIONS.includes(raw?.action) ? raw.action : mapAction(intent, message);
-  let reply = String(raw?.reply || '').trim();
-
-  if (!reply || !hasArabic(reply)) {
-    reply = fallbackReply(intent, payload.context || {}, message);
-  }
-
-  if (repeatedReply(reply, memory)) {
-    reply = fallbackReply(intent, payload.context || {}, `${message}-${Date.now()}`);
-  }
-
-  if (!ACTIONS.includes(action)) action = 'none';
+  let intent = detectIntent(message);
   if (!INTENTS.includes(intent)) intent = 'curious';
+
+  let action = mapAction(intent, message);
+  if (!ACTIONS.includes(action)) action = 'none';
+
+  let reply = craftReply(intent, payload.context || {}, message);
+  if (repeatedReply(reply, memory)) {
+    reply = craftReply(intent, payload.context || {}, `${message}-${Date.now()}`);
+  }
 
   return {
     reply,
     intent,
     action,
-    reasoning: String(raw?.reasoning || 'sanitized'),
-    source: ai ? 'gemini_or_fallback' : 'rule_fallback'
+    reasoning: 'rule-engine',
+    source: 'rule-engine'
   };
 }
-
-const SYSTEM_PROMPT = `أنتِ نادية، بائعة جزائرية محترفة لساعات نسائية فاخرة.
-
-المطلوب:
-- الرد دائمًا بالعربية/الدارجة الجزائرية فقط.
-- أسلوب مقنع، أنثوي، مختصر (1-2 جمل).
-- ممنوع الإنجليزية.
-- لا اختلاق معلومات خارج context.
-- أرجعي JSON فقط بدون أي نص إضافي.
-
-JSON schema:
-{
-  "reply": "string",
-  "intent": "curious|hesitant|price inquiry|quality inquiry|ready to buy",
-  "action": "scroll_price|scroll_images|scroll_reviews|buy|none",
-  "reasoning": "string"
-}`;
 
 app.get('/health', (_req, res) => {
   res.json({
     ok: true,
     service: 'shopify-ai-voice-sales-assistant',
-    geminiConfigured: Boolean(API_KEY),
-    model: MODEL,
+    engine: 'rule-engine',
     elevenlabsConfigured: Boolean(ELEVENLABS_API_KEY),
     allowedOrigins: allowedOrigins.length ? allowedOrigins : ['*']
   });
 });
 
-app.post('/chat', rateLimit, async (req, res) => {
+app.post('/chat', rateLimit, (req, res) => {
   const payload = req.body || {};
   if (!payload.message || typeof payload.message !== 'string') {
     return res.status(400).json({ error: 'message is required' });
   }
 
-  if (!ai) {
-    return res.json(sanitizeOutput({}, payload));
-  }
-
-  try {
-    const result = await ai.models.generateContent({
-      model: MODEL,
-      config: {
-        systemInstruction: SYSTEM_PROMPT,
-        responseMimeType: 'application/json',
-        temperature: 0.2,
-        topP: 0.85
-      },
-      contents: [{
-        role: 'user',
-        parts: [{ text: JSON.stringify({
-          message: payload.message,
-          context: payload.context || {},
-          memory: Array.isArray(payload.memory) ? payload.memory.slice(-MAX_MEMORY) : [],
-          locale: payload.locale || 'ar-DZ'
-        }) }]
-      }]
-    });
-
-    const parsed = safeParseJson(result.text || '');
-    return res.json(sanitizeOutput(parsed, payload));
-  } catch {
-    return res.json(sanitizeOutput({}, payload));
-  }
+  return res.json(runAssistant(payload));
 });
 
 app.get('/tts', rateLimit, async (req, res) => {

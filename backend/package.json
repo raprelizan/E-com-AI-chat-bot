@@ -1,7 +1,7 @@
 {
   "name": "shopify-ai-voice-sales-assistant",
-  "version": "2.0.0",
-  "description": "Professional Shopify AI voice sales assistant backend",
+  "version": "2.1.0",
+  "description": "Professional Shopify voice sales assistant backend (ElevenLabs-only TTS + rule engine)",
   "main": "server.js",
   "type": "module",
   "scripts": {
@@ -10,7 +10,6 @@
     "check": "node --check server.js"
   },
   "dependencies": {
-    "@google/genai": "^1.2.0",
     "cors": "^2.8.5",
     "dotenv": "^16.6.1",
     "express": "^4.21.2",

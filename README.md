@@ -1,15 +1,15 @@
-# Shopify AI Voice Sales Assistant (Pro v2)
+# Shopify AI Voice Sales Assistant (Pro v2 - ElevenLabs Only)
 
 مساعد تسويقي صوتي احترافي لصفحات المنتجات في Shopify مع:
 - محادثة صوتية مستمرة (دارجة/عربية)
 - Intent + Action ذكي
 - تنفيذ آمن للأوامر على الصفحة (سعر/صور/مراجعات/شراء)
-- Backend قوي مع Gemini 2.5 Flash + fallback ذكي
+- Backend rule-engine قوي + ElevenLabs TTS
 
 ## المميزات الأساسية
 
 - Voice STT عبر Web Speech API
-- Voice TTS عبر ElevenLabs (أساسي) + Google-TTS/Browser fallback
+- Voice TTS عبر ElevenLabs (أساسي) + Browser fallback
 - شخصية بائعة جزائرية مقنعة
 - ذاكرة آخر 5 تفاعلات
 - Widget صغير قابل للسحب
@@ -41,7 +41,7 @@ frontend/
 cd backend
 npm install
 cp .env.example .env
-# عدل GEMINI_API_KEY + ELEVENLABS_API_KEY + ALLOWED_ORIGINS
+# عدل ELEVENLABS_API_KEY + ALLOWED_ORIGINS
 npm run start
 ```
 
@@ -49,8 +49,6 @@ npm run start
 
 ```env
 PORT=8787
-GEMINI_API_KEY=REPLACE_WITH_YOUR_GEMINI_API_KEY
-GEMINI_MODEL=gemini-2.5-flash
 ELEVENLABS_API_KEY=REPLACE_WITH_YOUR_ELEVENLABS_API_KEY
 ELEVENLABS_VOICE_ID=EXAVITQu4vr4xnSDxMaL
 ELEVENLABS_MODEL_ID=eleven_multilingual_v2
@@ -84,7 +82,7 @@ Endpoints:
 1. نقرة على زر 🎙 تبدأ المحادثة
 2. نقرة ثانية توقف المحادثة
 3. النظام يسمع → يرسل `/chat` مع context + memory
-4. backend يرجع `intent/action/reply`
+4. backend rule-engine يرجع `intent/action/reply`
 5. frontend ينفذ action آمن ويتكلم بالرد
 
 Action Contract:
@@ -102,10 +100,10 @@ Action Contract:
 
 ## 4) لماذا هذا الإصدار أقوى
 
+- بدون Gemini نهائياً
+- ElevenLabs للصوت (احترافي)
 - منع تكرار الردود (anti-repeat)
-- fallback ذكي حسب نية المستخدم
-- تنظيف الردود غير العربية
-- نموذج Gemini 2.5 Flash افتراضي
+- rule-engine قوي للـ intent/action
 - واجهة مضغوطة احترافية قابلة للسحب
 
 ---
