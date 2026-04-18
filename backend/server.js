@@ -5,99 +5,148 @@ import { GoogleGenAI } from '@google/genai';
 import googleTTS from 'google-tts-api';
 
 const app = express();
-const port = process.env.PORT || 8787;
+const PORT = Number(process.env.PORT || 8787);
+const MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+const API_KEY = process.env.GEMINI_API_KEY || '';
+const ai = API_KEY ? new GoogleGenAI({ apiKey: API_KEY }) : null;
 
-app.use(cors());
+const ACTIONS = ['scroll_price', 'scroll_images', 'scroll_reviews', 'buy', 'none'];
+const INTENTS = ['curious', 'hesitant', 'price inquiry', 'quality inquiry', 'ready to buy'];
+const MAX_MEMORY = 5;
+
+const allowedOrigins = (process.env.ALLOWED_ORIGINS || '')
+  .split(',')
+  .map((o) => o.trim())
+  .filter(Boolean);
+
+app.use(cors({
+  origin(origin, callback) {
+    if (!origin || !allowedOrigins.length || allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+    return callback(new Error('CORS not allowed'));
+  }
+}));
 app.use(express.json({ limit: '1mb' }));
 
-const geminiApiKey = process.env.GEMINI_API_KEY;
-const ai = geminiApiKey ? new GoogleGenAI({ apiKey: geminiApiKey }) : null;
-const geminiProjectName = process.env.GEMINI_PROJECT_NAME || '';
-const geminiProjectNumber = process.env.GEMINI_PROJECT_NUMBER || '';
+const rateBucket = new Map();
+function rateLimit(req, res, next) {
+  const ip = req.headers['x-forwarded-for']?.toString().split(',')[0] || req.socket.remoteAddress || 'unknown';
+  const now = Date.now();
+  const windowMs = 60_000;
+  const maxReq = 45;
+  const entry = rateBucket.get(ip) || { count: 0, resetAt: now + windowMs };
 
-const VALID_ACTIONS = new Set(['scroll_price', 'scroll_images', 'scroll_reviews', 'buy', 'none']);
-const VALID_INTENTS = new Set(['curious', 'hesitant', 'price inquiry', 'quality inquiry', 'ready to buy']);
-
-const SYSTEM_PROMPT = `أنتِ "نادية"، بائعة جزائرية محترفة لساعات نسائية فاخرة.
-
-مهم جدًا:
-- الرد دائمًا بالعربية أو الدارجة الجزائرية فقط.
-- ممنوع الرد بالإنجليزية.
-- أسلوبك أنثوي، راقٍ، مقنع، ومباشر.
-- كل رد من 1 إلى 2 جمل قصار.
-- لا تختلقي معلومات غير موجودة في context.
-
-أرجعي JSON فقط بالشكل التالي:
-{
-  "reply": "string",
-  "intent": "curious|hesitant|price inquiry|quality inquiry|ready to buy",
-  "action": "scroll_price|scroll_images|scroll_reviews|buy|none",
-  "reasoning": "string"
-}
-
-قواعد intent/action:
-1) إذا السؤال عن السعر/الثمن/الخصم => intent: price inquiry + action: scroll_price
-2) إذا السؤال عن الصور/الشكل/الألوان => action: scroll_images
-3) إذا السؤال عن الجودة/الخامة/الضمان/التقييمات => intent: quality inquiry + action: scroll_reviews
-4) إذا الزبون جاهز للشراء => intent: ready to buy + action: buy
-5) غير ذلك => action: none
-`;
-
-function ruleBasedIntent(userText = '') {
-  const text = userText.toLowerCase();
-
-  if (/(buy|checkout|i want it|add to cart|اشتري|شراء|نخلص|خلص|اضيفيها|السلة)/i.test(text)) {
-    return 'ready to buy';
+  if (now > entry.resetAt) {
+    entry.count = 0;
+    entry.resetAt = now + windowMs;
   }
-  if (/(price|cost|how much|discount|السعر|الثمن|بشحال|قداش|تخفيض)/i.test(text)) {
-    return 'price inquiry';
+
+  entry.count += 1;
+  rateBucket.set(ip, entry);
+
+  if (entry.count > maxReq) {
+    return res.status(429).json({ error: 'Rate limit exceeded' });
   }
-  if (/(quality|material|warranty|reviews|authentic|الجودة|الخامة|الخام|الضمان|التقييم|مراجعات|اصلية)/i.test(text)) {
-    return 'quality inquiry';
+
+  return next();
+}
+
+function hashSeed(value = '') {
+  let hash = 0;
+  for (let i = 0; i < value.length; i += 1) {
+    hash = ((hash << 5) - hash) + value.charCodeAt(i);
+    hash |= 0;
   }
-  if (/(not sure|hesitant|later|maybe|مش متأكد|مترددة|محتارة|بعد)/i.test(text)) {
-    return 'hesitant';
-  }
-  return 'curious';
+  return Math.abs(hash);
 }
 
-function actionFromIntent(intent = 'curious', text = '') {
-  if (intent === 'ready to buy') return 'buy';
-  if (intent === 'price inquiry') return 'scroll_price';
-  if (intent === 'quality inquiry') return 'scroll_reviews';
-  if (/(photo|image|design|style|shape|صور|شكل|تصميم|الوان|لون)/i.test(text)) return 'scroll_images';
-  return 'none';
+function pick(list, seed = '') {
+  if (!list?.length) return '';
+  return list[hashSeed(seed) % list.length];
 }
 
-function hashSeed(text = '') {
-  let h = 0;
-  for (let i = 0; i < text.length; i += 1) h = ((h << 5) - h) + text.charCodeAt(i);
-  return Math.abs(h);
+function hasArabic(text = '') {
+  return /[\u0600-\u06FF]/.test(text);
 }
 
-function pickVariant(variants, seedText = '') {
-  if (!variants.length) return '';
-  return variants[hashSeed(seedText) % variants.length];
+function normalizeText(text = '') {
+  return String(text).replace(/\s+/g, ' ').trim().toLowerCase();
 }
 
-function normalizeSimple(text = '') {
-  return text.replace(/\s+/g, ' ').trim().toLowerCase();
-}
-
-function isRepeatedReply(reply = '', memory = []) {
-  const normalized = normalizeSimple(reply);
+function repeatedReply(reply = '', memory = []) {
+  const normalized = normalizeText(reply);
   if (!normalized) return false;
-  const lastAssistant = (memory || []).filter((m) => m.role === 'assistant').slice(-2).map((m) => normalizeSimple(m.text || ''));
+  const lastAssistant = memory.filter((m) => m.role === 'assistant').slice(-2).map((m) => normalizeText(m.text || ''));
   return lastAssistant.includes(normalized);
 }
 
-function safeJsonParse(text) {
+function detectIntent(message = '') {
+  const text = message.toLowerCase();
+
+  if (/(اشتري|شراء|نخلص|خلص|سلة|add to cart|buy|checkout)/i.test(text)) return 'ready to buy';
+  if (/(سعر|ثمن|بشحال|قداش|خصم|price|cost|discount)/i.test(text)) return 'price inquiry';
+  if (/(جودة|خامة|خام|ضمان|تقييم|review|quality|material|warranty)/i.test(text)) return 'quality inquiry';
+  if (/(مترددة|محتارة|مش متأكد|later|maybe|hesitant)/i.test(text)) return 'hesitant';
+  return 'curious';
+}
+
+function mapAction(intent, message = '') {
+  if (intent === 'ready to buy') return 'buy';
+  if (intent === 'price inquiry') return 'scroll_price';
+  if (intent === 'quality inquiry') return 'scroll_reviews';
+  if (/(صور|شكل|تصميم|لون|image|photo|design|style)/i.test(message)) return 'scroll_images';
+  return 'none';
+}
+
+function fallbackReply(intent, context = {}, message = '') {
+  const product = context.title || 'هاد الساعة';
+  const price = context.price || 'مبيّن في الصفحة';
+
+  if (/(مرحبا|السلام|اهلا|hello|hi)/i.test(message)) {
+    return pick([
+      'يا هلا 💜 أنا نادية. تحبي نبدأ بالسعر ولا الجودة ولا الصور؟',
+      'مرحبا بيك 🌸 نقدر نعاونك خطوة بخطوة حتى تختاري براحة.'
+    ], message);
+  }
+
+  if (/(شحن|توصيل|delivery|وصل)/i.test(message)) {
+    return 'أكيد، نقدر نعاونك بمعلومات التوصيل المتوفرة قبل إتمام الطلب.';
+  }
+
+  const variants = {
+    'ready to buy': [
+      `ممتاز ✨ ${product} اختيار راقٍ، نضيفه للسلة الآن؟`,
+      'جاهزين 👌 نكملك مباشرة بخطوة الشراء.'
+    ],
+    'price inquiry': [
+      `السعر ظاهر في الصفحة (${price})، نوديك مباشرة لمكانه؟`,
+      'أكيد، نقدر نوجّهك حالًا لقسم السعر.'
+    ],
+    'quality inquiry': [
+      'نقدر نوجّهك لقسم التقييمات والمراجعات باش تاخذي قرار واثق.',
+      'خليني نوريك الجودة والمراجعات بالتفصيل.'
+    ],
+    hesitant: [
+      'عادي خذي وقتك 💜 نقدر نبدأ بأبسط نقطة: السعر أو الصور.',
+      'ماكان حتى ضغط، نعاونك بهدوء حتى تكوني مرتاحة.'
+    ],
+    curious: [
+      `قوليلي وش تحبي تعرفي على ${product}: السعر، الصور، الجودة، ولا الشراء؟`,
+      'تحبي نبدأ بالسعر ولا بالصور؟'
+    ]
+  };
+
+  return pick(variants[intent] || variants.curious, message);
+}
+
+function safeParseJson(text = '') {
   try {
     return JSON.parse(text);
   } catch {
     const start = text.indexOf('{');
     const end = text.lastIndexOf('}');
-    if (start !== -1 && end !== -1 && end > start) {
+    if (start !== -1 && end > start) {
       try {
         return JSON.parse(text.slice(start, end + 1));
       } catch {
@@ -108,174 +157,103 @@ function safeJsonParse(text) {
   }
 }
 
-function hasArabicChars(text = '') {
-  return /[\u0600-\u06FF]/.test(text);
-}
+function sanitizeOutput(raw, payload) {
+  const message = String(payload.message || '');
+  const memory = Array.isArray(payload.memory) ? payload.memory.slice(-MAX_MEMORY) : [];
+  const inferredIntent = detectIntent(message);
 
-function shouldReplaceReply(text = '') {
-  const chars = (text || '').replace(/\s+/g, '');
-  if (!chars) return true;
-  const latinCount = (chars.match(/[A-Za-z]/g) || []).length;
-  const latinHeavy = latinCount / chars.length > 0.35;
-  return latinHeavy || !hasArabicChars(text);
-}
-
-function fallbackReply(intent, context = {}, userText = '') {
-  const title = context.title || 'هاد المنتج';
-  const price = context.price || 'يبان في الصفحة';
-  const text = (userText || '').toLowerCase();
-
-  if (/(السلام|مرحبا|اهلا|hello|hi)/i.test(text)) {
-    return pickVariant([
-      'يا هلا 💜 أنا نادية، قوليلي تحبي نبدأ بالسعر ولا الجودة ولا الصور؟',
-      'مرحبا بيك ✨ أنا هنا نعاونك، تحبي تشوفي السعر ولا التقييمات؟',
-      'أهلا وسهلا 🌸 نقدر نرشدك بسرعة للسعر، الصور، أو الشراء مباشرة.'
-    ], userText);
-  }
-
-  if (/(شحن|توصيل|delivery|وصل|مدة)/i.test(text)) {
-    return pickVariant([
-      'بخصوص التوصيل، نقدر نكملك بالمعلومات المتوفرة في المتجر قبل إتمام الطلب.',
-      'أكيد، نقدر نعاونك بخطوات الشحن مباشرة من صفحة المنتج والسلة.'
-    ], userText);
-  }
-
-  if (/(ارجاع|استرجاع|return|refund|ضمان)/i.test(text)) {
-    return pickVariant([
-      'على الضمان والإرجاع، الأفضل نراجع تفاصيل سياسة المتجر ونوريهالك مباشرة.',
-      'نقدر نوجهك لقسم المراجعات والسياسة باش تتأكدي قبل الشراء.'
-    ], userText);
-  }
-
-  const variants = {
-    'ready to buy': [
-      `ممتاز ✨ إذا موافقة نضيف ${title} للسلة الآن مباشرة.`,
-      'جاهزين للشراء 👌 نقدر نكملك بخطوة إضافة للسلة حالًا.'
-    ],
-    'price inquiry': [
-      `أكيد 👌 السعر ظاهر في الصفحة (${price})، نحركك مباشرة لمكانه؟`,
-      'نقدر نديك مباشرة لقسم السعر باش تشوفيه بوضوح.'
-    ],
-    'quality inquiry': [
-      'من ناحية الجودة، نخليك تشوفي التقييمات والمراجعات باش تاخذي قرار واثق.',
-      'نقدر نوجّهك لقسم الجودة والمراجعات فورًا.'
-    ],
-    hesitant: [
-      'عادي خذي وقتك 💜 نقدر نبدأ بأبسط نقطة: السعر أو الصور.',
-      'ماكان حتى ضغط، نعاونك خطوة بخطوة حتى تكوني مرتاحة.'
-    ],
-    curious: [
-      'فهمتك 👌 قوليلي تحبي السعر، الصور، الجودة، ولا الشراء مباشرة؟',
-      `تحبي نبدأ بسعر ${title} ولا بصوره ولا بالتقييمات؟`
-    ]
-  };
-
-  return pickVariant(variants[intent] || variants.curious, userText);
-}
-
-function normalizeResponse(raw, payload) {
-  const userText = payload.message || '';
-  const fallbackIntent = ruleBasedIntent(userText);
-
-  const intent = VALID_INTENTS.has(raw?.intent) ? raw.intent : fallbackIntent;
-  let action = VALID_ACTIONS.has(raw?.action) ? raw.action : actionFromIntent(intent, userText);
-
-  if (!VALID_ACTIONS.has(action)) {
-    action = actionFromIntent(intent, userText);
-  }
-
+  let intent = INTENTS.includes(raw?.intent) ? raw.intent : inferredIntent;
+  let action = ACTIONS.includes(raw?.action) ? raw.action : mapAction(intent, message);
   let reply = String(raw?.reply || '').trim();
-  if (!reply || shouldReplaceReply(reply)) {
-    reply = fallbackReply(intent, payload.context || {}, userText);
+
+  if (!reply || !hasArabic(reply)) {
+    reply = fallbackReply(intent, payload.context || {}, message);
   }
 
-  if (isRepeatedReply(reply, payload.memory || [])) {
-    reply = fallbackReply(intent, payload.context || {}, `${userText}-${Date.now()}`);
+  if (repeatedReply(reply, memory)) {
+    reply = fallbackReply(intent, payload.context || {}, `${message}-${Date.now()}`);
   }
+
+  if (!ACTIONS.includes(action)) action = 'none';
+  if (!INTENTS.includes(intent)) intent = 'curious';
 
   return {
     reply,
     intent,
     action,
-    reasoning: String(raw?.reasoning || 'normalized response')
+    reasoning: String(raw?.reasoning || 'sanitized'),
+    source: ai ? 'gemini_or_fallback' : 'rule_fallback'
   };
 }
 
-function buildFallbackResponse(payload) {
-  const intent = ruleBasedIntent(payload.message || '');
-  return {
-    reply: fallbackReply(intent, payload.context || {}, payload.message || ''),
-    action: actionFromIntent(intent, payload.message || ''),
-    intent,
-    reasoning: 'Rule fallback used'
-  };
-}
+const SYSTEM_PROMPT = `أنتِ نادية، بائعة جزائرية محترفة لساعات نسائية فاخرة.
+
+المطلوب:
+- الرد دائمًا بالعربية/الدارجة الجزائرية فقط.
+- أسلوب مقنع، أنثوي، مختصر (1-2 جمل).
+- ممنوع الإنجليزية.
+- لا اختلاق معلومات خارج context.
+- أرجعي JSON فقط بدون أي نص إضافي.
+
+JSON schema:
+{
+  "reply": "string",
+  "intent": "curious|hesitant|price inquiry|quality inquiry|ready to buy",
+  "action": "scroll_price|scroll_images|scroll_reviews|buy|none",
+  "reasoning": "string"
+}`;
 
 app.get('/health', (_req, res) => {
   res.json({
     ok: true,
-    service: 'shopify-ai-voice-assistant',
-    geminiConfigured: Boolean(geminiApiKey),
-    model: process.env.GEMINI_MODEL || 'gemini-2.5-flash',
-    project: geminiProjectName || undefined,
-    projectNumber: geminiProjectNumber || undefined
+    service: 'shopify-ai-voice-sales-assistant',
+    geminiConfigured: Boolean(API_KEY),
+    model: MODEL,
+    allowedOrigins: allowedOrigins.length ? allowedOrigins : ['*']
   });
 });
 
-app.post('/chat', async (req, res) => {
+app.post('/chat', rateLimit, async (req, res) => {
   const payload = req.body || {};
-
   if (!payload.message || typeof payload.message !== 'string') {
     return res.status(400).json({ error: 'message is required' });
   }
 
   if (!ai) {
-    return res.json(buildFallbackResponse(payload));
+    return res.json(sanitizeOutput({}, payload));
   }
 
   try {
-    const response = await ai.models.generateContent({
-      model: process.env.GEMINI_MODEL || 'gemini-2.5-flash',
+    const result = await ai.models.generateContent({
+      model: MODEL,
       config: {
         systemInstruction: SYSTEM_PROMPT,
         responseMimeType: 'application/json',
         temperature: 0.2,
-        topP: 0.8
+        topP: 0.85
       },
-      contents: [
-        {
-          role: 'user',
-          parts: [
-            {
-              text: JSON.stringify({
-                message: payload.message,
-                memory: payload.memory || [],
-                locale: payload.locale || 'ar-DZ',
-                responseLanguage: payload.responseLanguage || 'algerian_arabic',
-                context: payload.context || {}
-              })
-            }
-          ]
-        }
-      ]
+      contents: [{
+        role: 'user',
+        parts: [{ text: JSON.stringify({
+          message: payload.message,
+          context: payload.context || {},
+          memory: Array.isArray(payload.memory) ? payload.memory.slice(-MAX_MEMORY) : [],
+          locale: payload.locale || 'ar-DZ'
+        }) }]
+      }]
     });
 
-    const parsed = safeJsonParse(response.text || '{}');
-    const normalized = normalizeResponse(parsed, payload);
-
-    return res.json(normalized);
+    const parsed = safeParseJson(result.text || '');
+    return res.json(sanitizeOutput(parsed, payload));
   } catch {
-    return res.json(buildFallbackResponse(payload));
+    return res.json(sanitizeOutput({}, payload));
   }
 });
 
-app.get('/tts', async (req, res) => {
+app.get('/tts', rateLimit, async (req, res) => {
   const text = String(req.query.text || '').trim();
   const lang = String(req.query.lang || 'ar').toLowerCase();
-
-  if (!text) {
-    return res.status(400).json({ error: 'text query param required' });
-  }
+  if (!text) return res.status(400).json({ error: 'text query param required' });
 
   const allowed = new Set(['ar', 'fr', 'en']);
   const safeLang = allowed.has(lang) ? lang : 'ar';
@@ -286,12 +264,12 @@ app.get('/tts', async (req, res) => {
       slow: false,
       host: 'https://translate.google.com'
     });
-    res.json({ url });
+    return res.json({ url });
   } catch {
-    res.status(500).json({ error: 'Failed to generate TTS URL' });
+    return res.status(500).json({ error: 'Failed to generate TTS URL' });
   }
 });
 
-app.listen(port, () => {
-  console.log(`AI Voice Sales Assistant backend running on port ${port}`);
+app.listen(PORT, () => {
+  console.log(`Voice assistant backend running at http://localhost:${PORT}`);
 });

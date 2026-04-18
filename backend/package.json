@@ -1,7 +1,7 @@
 {
   "name": "shopify-ai-voice-sales-assistant",
-  "version": "1.0.0",
-  "description": "Production-ready Shopify AI voice sales assistant backend",
+  "version": "2.0.0",
+  "description": "Professional Shopify AI voice sales assistant backend",
   "main": "server.js",
   "type": "module",
   "scripts": {

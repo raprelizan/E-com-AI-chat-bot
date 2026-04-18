@@ -1,7 +1,7 @@
 {%- comment -%}
-  Shopify AI Voice Sales Assistant snippet
-  Usage in theme.liquid:
-  {% render 'ai-voice-assistant', api_base: 'https://your-backend.example.com' %}
+  Shopify AI Voice Sales Assistant snippet (v2)
+  Usage:
+  {% render 'ai-voice-assistant', api_base: 'https://unretired-update-cadet.ngrok-free.dev' %}
 {%- endcomment -%}
 
 {%- if request.page_type == 'product' -%}
@@ -17,14 +17,14 @@
 
     (function () {
       function loadAssistant() {
-        var s = document.createElement('script');
-        s.src = {{ 'voice-assistant.js' | asset_url | json }};
-        s.defer = true;
-        document.head.appendChild(s);
+        var script = document.createElement('script');
+        script.src = {{ 'voice-assistant.js' | asset_url | json }};
+        script.defer = true;
+        document.head.appendChild(script);
       }
 
       if ('requestIdleCallback' in window) {
-        requestIdleCallback(loadAssistant, { timeout: 1500 });
+        requestIdleCallback(loadAssistant, { timeout: 1600 });
       } else {
         setTimeout(loadAssistant, 350);
       }

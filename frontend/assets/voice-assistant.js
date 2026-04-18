@@ -1,329 +1,327 @@
 (() => {
   const CONFIG = window.ShopifyVoiceAssistantConfig || {};
-  const API_BASE = CONFIG.apiBase || 'https://unretired-update-cadet.ngrok-free.dev';
-  const ASSISTANT_LANG = CONFIG.lang || 'ar-DZ';
-  const TTS_LANG = (CONFIG.ttsLang || 'ar').toLowerCase();
-  const MEMORY_KEY = 'shopify_voice_assistant_memory_v1';
-  const MAX_MEMORY = 5;
 
-  const state = {
-    active: false,
-    listening: false,
-    speaking: false,
-    recognition: null,
-    ui: null,
-    drag: { enabled: false, startX: 0, startY: 0, startLeft: 14, startTop: 0 }
+  const SETTINGS = {
+    apiBase: CONFIG.apiBase || 'https://unretired-update-cadet.ngrok-free.dev',
+    lang: CONFIG.lang || 'ar-DZ',
+    ttsLang: CONFIG.ttsLang || 'ar',
+    memoryLimit: 5,
+    memoryKey: 'shopify_voice_assistant_memory_v2'
   };
 
-  const actionMap = {
-    scroll_price: () => scrollToAndHighlight(findPriceElement()),
-    scroll_images: () => scrollToAndHighlight(findImagesElement()),
-    scroll_reviews: () => scrollToAndHighlight(findReviewsElement()),
-    buy: () => clickAddToCart(),
-    none: () => {}
-  };
+  class VoiceSalesAssistant {
+    constructor() {
+      this.state = {
+        active: false,
+        listening: false,
+        speaking: false,
+        dragging: false,
+        recognition: null,
+        ui: null,
+        dragStart: null
+      };
 
-  function loadMemory() {
-    try {
-      return JSON.parse(localStorage.getItem(MEMORY_KEY) || '[]');
-    } catch {
-      return [];
+      this.actions = {
+        scroll_price: () => this.scrollToAndHighlight(this.findPriceElement()),
+        scroll_images: () => this.scrollToAndHighlight(this.findImagesElement()),
+        scroll_reviews: () => this.scrollToAndHighlight(this.findReviewsElement()),
+        buy: () => this.clickAddToCart(),
+        none: () => {}
+      };
     }
-  }
 
-  function saveMemory(memory) {
-    localStorage.setItem(MEMORY_KEY, JSON.stringify(memory.slice(-MAX_MEMORY)));
-  }
+    isProductPage() {
+      return /\/products\//.test(location.pathname) || !!document.querySelector('form[action*="/cart/add"]');
+    }
 
-  function addMemoryEntry(role, text) {
-    const memory = loadMemory();
-    memory.push({ role, text, ts: Date.now() });
-    saveMemory(memory);
-  }
-
-  function getPageContext() {
-    const titleEl = document.querySelector('h1.product__title, .product__title, h1');
-    const priceEl = findPriceElement();
-    const imageEls = [...document.querySelectorAll('.product__media img, .product-gallery img, img.product__image')].slice(0, 5);
-    const reviewEl = findReviewsElement();
-
-    return {
-      title: titleEl?.textContent?.trim() || document.title,
-      price: priceEl?.textContent?.trim() || '',
-      images: imageEls.map((img) => img.src).filter(Boolean),
-      reviews: reviewEl?.textContent?.trim()?.slice(0, 500) || ''
-    };
-  }
-
-  function findPriceElement() {
-    return document.querySelector('.price-item--regular, .price__regular .price-item, .price, [data-product-price]');
-  }
-
-  function findImagesElement() {
-    return document.querySelector('.product__media-wrapper, .product-gallery, .product__media-list, [data-product-media]');
-  }
-
-  function findReviewsElement() {
-    return document.querySelector('#reviews, .shopify-product-reviews, [data-reviews], .jdgm-widget, .spr-container');
-  }
-
-  function scrollToAndHighlight(el) {
-    if (!el) return;
-    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    el.classList.add('va-highlight');
-    setTimeout(() => el.classList.remove('va-highlight'), 2200);
-  }
-
-  function clickAddToCart() {
-    const addButton = document.querySelector('form[action*="/cart/add"] [type="submit"], button[name="add"], .product-form__submit');
-    if (!addButton) return;
-    scrollToAndHighlight(addButton);
-    setTimeout(() => addButton.click(), 250);
-  }
-
-  function pickVoice() {
-    const voices = speechSynthesis.getVoices();
-    return voices.find((v) => /ar/i.test(v.lang) && /female|amira|zira|sara|google/i.test(v.name))
-      || voices.find((v) => /ar/i.test(v.lang))
-      || voices.find((v) => /female|zira|samantha/i.test(v.name));
-  }
-
-  function browserSpeak(text) {
-    return new Promise((resolve) => {
-      if (!('speechSynthesis' in window)) {
-        resolve();
-        return;
+    loadMemory() {
+      try {
+        return JSON.parse(localStorage.getItem(SETTINGS.memoryKey) || '[]');
+      } catch {
+        return [];
       }
+    }
 
-      const utterance = new SpeechSynthesisUtterance(text);
-      utterance.lang = ASSISTANT_LANG;
-      utterance.rate = 0.9;
-      utterance.pitch = 1.02;
-      const voice = pickVoice();
-      if (voice) utterance.voice = voice;
-      utterance.onend = resolve;
-      utterance.onerror = resolve;
-      speechSynthesis.cancel();
-      speechSynthesis.speak(utterance);
-    });
-  }
+    saveMemory(memory) {
+      localStorage.setItem(SETTINGS.memoryKey, JSON.stringify(memory.slice(-SETTINGS.memoryLimit)));
+    }
 
-  function setStatus(text) {
-    if (state.ui?.status) state.ui.status.textContent = text;
-  }
+    pushMemory(role, text) {
+      const memory = this.loadMemory();
+      memory.push({ role, text, ts: Date.now() });
+      this.saveMemory(memory);
+    }
 
-  function setActiveVisual(active) {
-    if (!state.ui?.button) return;
-    state.ui.button.classList.toggle('va-fab-active', active);
-  }
+    getPageContext() {
+      const titleEl = document.querySelector('h1.product__title, .product__title, h1');
+      const priceEl = this.findPriceElement();
+      const imageEls = [...document.querySelectorAll('.product__media img, .product-gallery img, img.product__image')].slice(0, 6);
+      const reviewsEl = this.findReviewsElement();
 
-  async function speak(text) {
-    state.speaking = true;
-    setStatus('نادية تتكلم...');
+      return {
+        title: titleEl?.textContent?.trim() || document.title,
+        price: priceEl?.textContent?.trim() || '',
+        images: imageEls.map((img) => img.src).filter(Boolean),
+        reviews: reviewsEl?.textContent?.trim()?.slice(0, 500) || ''
+      };
+    }
 
-    try {
-      const ttsResponse = await fetch(`${API_BASE}/tts?lang=${encodeURIComponent(TTS_LANG)}&text=${encodeURIComponent(text)}`);
-      if (!ttsResponse.ok) throw new Error('tts-failed');
-      const data = await ttsResponse.json();
-      if (!data.url) throw new Error('no-url');
+    findPriceElement() {
+      return document.querySelector('.price-item--regular, .price__regular .price-item, .price, [data-product-price]');
+    }
 
-      await new Promise((resolve) => {
-        const audio = new Audio(data.url);
-        audio.onended = resolve;
-        audio.onerror = resolve;
-        audio.play().catch(resolve);
+    findImagesElement() {
+      return document.querySelector('.product__media-wrapper, .product-gallery, .product__media-list, [data-product-media]');
+    }
+
+    findReviewsElement() {
+      return document.querySelector('#reviews, .shopify-product-reviews, [data-reviews], .jdgm-widget, .spr-container');
+    }
+
+    scrollToAndHighlight(el) {
+      if (!el) return;
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      el.classList.add('va-highlight');
+      setTimeout(() => el.classList.remove('va-highlight'), 2200);
+    }
+
+    clickAddToCart() {
+      const btn = document.querySelector('form[action*="/cart/add"] [type="submit"], button[name="add"], .product-form__submit');
+      if (!btn) return;
+      this.scrollToAndHighlight(btn);
+      setTimeout(() => btn.click(), 280);
+    }
+
+    setStatus(text) {
+      if (this.state.ui?.status) this.state.ui.status.textContent = text;
+    }
+
+    setActiveVisual(active) {
+      this.state.ui?.button?.classList.toggle('va-fab-active', active);
+    }
+
+    pickVoice() {
+      const voices = speechSynthesis.getVoices();
+      return voices.find((v) => /ar/i.test(v.lang) && /female|amira|zira|sara|google/i.test(v.name))
+        || voices.find((v) => /ar/i.test(v.lang))
+        || voices[0];
+    }
+
+    speakBrowser(text) {
+      return new Promise((resolve) => {
+        if (!('speechSynthesis' in window)) return resolve();
+        const utter = new SpeechSynthesisUtterance(text);
+        utter.lang = SETTINGS.lang;
+        utter.rate = 0.9;
+        utter.pitch = 1.02;
+        const voice = this.pickVoice();
+        if (voice) utter.voice = voice;
+        utter.onend = resolve;
+        utter.onerror = resolve;
+        speechSynthesis.cancel();
+        speechSynthesis.speak(utter);
       });
-    } catch {
-      await browserSpeak(text);
     }
 
-    state.speaking = false;
-  }
-
-  async function sendChat(message) {
-    const payload = {
-      message,
-      memory: loadMemory(),
-      locale: ASSISTANT_LANG,
-      responseLanguage: 'algerian_arabic',
-      context: getPageContext()
-    };
-
-    const res = await fetch(`${API_BASE}/chat`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    });
-
-    if (!res.ok) throw new Error('chat-failed');
-    return res.json();
-  }
-
-  function createWidget() {
-    const root = document.createElement('div');
-    root.className = 'va-root';
-    root.innerHTML = `
-      <button id="va-fab" class="va-fab" aria-label="assistant"><span class="va-dot"></span><span class="va-mic">🎙</span></button>
-      <div id="va-status" class="va-status">اضغطي مرة لبدء الحديث</div>
-    `;
-    document.body.appendChild(root);
-
-    return {
-      root,
-      button: root.querySelector('#va-fab'),
-      status: root.querySelector('#va-status')
-    };
-  }
-
-  function isProductPage() {
-    return /\/products\//.test(location.pathname) || !!document.querySelector('form[action*="/cart/add"]');
-  }
-
-  function safeStartListening() {
-    if (!state.active || state.listening || state.speaking || !state.recognition) return;
-    try {
-      state.recognition.start();
-      state.listening = true;
-      setStatus('نسمع لك...');
-    } catch {
-      setTimeout(safeStartListening, 300);
-    }
-  }
-
-  function stopConversation() {
-    state.active = false;
-    state.listening = false;
-    state.speaking = false;
-    setActiveVisual(false);
-    if (state.recognition) {
-      try { state.recognition.stop(); } catch {}
-    }
-    speechSynthesis.cancel();
-    setStatus('تم الإيقاف');
-  }
-
-  async function startConversation() {
-    state.active = true;
-    setActiveVisual(true);
-    await speak('سلام، أنا نادية. قوليلي وش حابة تعرفي على هذي الساعة؟');
-    safeStartListening();
-  }
-
-  function bindRecognition() {
-    const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!Recognition) {
-      setStatus('المتصفح لا يدعم التعرف الصوتي');
-      return;
-    }
-
-    const recognition = new Recognition();
-    state.recognition = recognition;
-    recognition.lang = ASSISTANT_LANG;
-    recognition.continuous = false;
-    recognition.interimResults = false;
-
-    recognition.onresult = async (event) => {
-      state.listening = false;
-      const transcript = event.results?.[0]?.[0]?.transcript?.trim();
-      if (!transcript) {
-        if (state.active) safeStartListening();
-        return;
-      }
-
-      addMemoryEntry('user', transcript);
+    async speak(text) {
+      this.state.speaking = true;
+      this.setStatus('نادية تتكلم...');
 
       try {
-        const ai = await sendChat(transcript);
-        addMemoryEntry('assistant', ai.reply);
-        (actionMap[ai.action] || actionMap.none)();
-        await speak(ai.reply);
+        const r = await fetch(`${SETTINGS.apiBase}/tts?lang=${encodeURIComponent(SETTINGS.ttsLang)}&text=${encodeURIComponent(text)}`);
+        if (!r.ok) throw new Error('tts');
+        const data = await r.json();
+        if (!data.url) throw new Error('tts-url');
+
+        await new Promise((resolve) => {
+          const audio = new Audio(data.url);
+          audio.onended = resolve;
+          audio.onerror = resolve;
+          audio.play().catch(resolve);
+        });
       } catch {
-        await speak('سمحيلي، عاودي السؤال بطريقة أبسط.');
+        await this.speakBrowser(text);
       }
 
-      if (state.active) setTimeout(safeStartListening, 450);
-    };
+      this.state.speaking = false;
+    }
 
-    recognition.onerror = async () => {
-      state.listening = false;
-      if (!state.active) return;
-      await speak('ما سمعتش مليح. عاودي من فضلك.');
-      safeStartListening();
-    };
+    async sendChat(message) {
+      const payload = {
+        message,
+        locale: SETTINGS.lang,
+        memory: this.loadMemory(),
+        context: this.getPageContext()
+      };
 
-    recognition.onend = () => {
-      state.listening = false;
-      if (state.active && !state.speaking) {
-        setTimeout(safeStartListening, 320);
+      const r = await fetch(`${SETTINGS.apiBase}/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      if (!r.ok) throw new Error('chat failed');
+      return r.json();
+    }
+
+    createUI() {
+      const root = document.createElement('div');
+      root.className = 'va-root';
+      root.innerHTML = `
+        <button id="va-fab" class="va-fab" aria-label="assistant">
+          <span class="va-dot"></span>
+          <span class="va-mic">🎙</span>
+        </button>
+        <div id="va-status" class="va-status">اضغطي مرة وابدئي الحديث</div>
+      `;
+      document.body.appendChild(root);
+
+      return {
+        root,
+        button: root.querySelector('#va-fab'),
+        status: root.querySelector('#va-status')
+      };
+    }
+
+    bindDrag() {
+      const root = this.state.ui?.root;
+      if (!root) return;
+
+      const move = (clientX, clientY) => {
+        if (!this.state.dragging || !this.state.dragStart) return;
+        const { x, y, left, top } = this.state.dragStart;
+        const nextLeft = Math.max(8, left + (clientX - x));
+        const nextTop = Math.max(8, top + (clientY - y));
+        root.style.left = `${nextLeft}px`;
+        root.style.top = `${nextTop}px`;
+        root.style.transform = 'none';
+      };
+
+      const start = (clientX, clientY) => {
+        const rect = root.getBoundingClientRect();
+        this.state.dragging = true;
+        this.state.dragStart = { x: clientX, y: clientY, left: rect.left, top: rect.top };
+        root.classList.add('va-dragging');
+      };
+
+      const end = () => {
+        this.state.dragging = false;
+        this.state.dragStart = null;
+        root.classList.remove('va-dragging');
+      };
+
+      root.addEventListener('mousedown', (e) => start(e.clientX, e.clientY));
+      window.addEventListener('mousemove', (e) => move(e.clientX, e.clientY));
+      window.addEventListener('mouseup', end);
+
+      root.addEventListener('touchstart', (e) => {
+        const t = e.touches[0];
+        if (t) start(t.clientX, t.clientY);
+      }, { passive: true });
+      window.addEventListener('touchmove', (e) => {
+        const t = e.touches[0];
+        if (t) move(t.clientX, t.clientY);
+      }, { passive: true });
+      window.addEventListener('touchend', end);
+    }
+
+    safeStartListening() {
+      if (!this.state.active || this.state.listening || this.state.speaking || !this.state.recognition) return;
+      try {
+        this.state.recognition.start();
+        this.state.listening = true;
+        this.setStatus('نسمع لك...');
+      } catch {
+        setTimeout(() => this.safeStartListening(), 320);
       }
-    };
-  }
+    }
 
+    stopConversation() {
+      this.state.active = false;
+      this.state.listening = false;
+      this.state.speaking = false;
+      this.setActiveVisual(false);
+      this.state.recognition?.stop();
+      speechSynthesis.cancel();
+      this.setStatus('تم الإيقاف');
+    }
 
-  function enableDrag() {
-    const root = state.ui?.root;
-    if (!root) return;
+    async startConversation() {
+      this.state.active = true;
+      this.setActiveVisual(true);
+      await this.speak('سلام، أنا نادية. قوليلي وش حابة تعرفي على المنتج؟');
+      this.safeStartListening();
+    }
 
-    const onMove = (clientX, clientY) => {
-      if (!state.drag.enabled) return;
-      const nextLeft = Math.max(8, state.drag.startLeft + (clientX - state.drag.startX));
-      const nextTop = Math.max(8, state.drag.startTop + (clientY - state.drag.startY));
-      root.style.left = `${nextLeft}px`;
-      root.style.top = `${nextTop}px`;
-      root.style.transform = 'none';
-    };
-
-    const start = (clientX, clientY) => {
-      const rect = root.getBoundingClientRect();
-      state.drag.enabled = true;
-      state.drag.startX = clientX;
-      state.drag.startY = clientY;
-      state.drag.startLeft = rect.left;
-      state.drag.startTop = rect.top;
-      root.classList.add('va-dragging');
-    };
-
-    const end = () => {
-      state.drag.enabled = false;
-      root.classList.remove('va-dragging');
-    };
-
-    root.addEventListener('mousedown', (e) => start(e.clientX, e.clientY));
-    window.addEventListener('mousemove', (e) => onMove(e.clientX, e.clientY));
-    window.addEventListener('mouseup', end);
-
-    root.addEventListener('touchstart', (e) => {
-      const t = e.touches[0];
-      if (!t) return;
-      start(t.clientX, t.clientY);
-    }, { passive: true });
-    window.addEventListener('touchmove', (e) => {
-      const t = e.touches[0];
-      if (!t) return;
-      onMove(t.clientX, t.clientY);
-    }, { passive: true });
-    window.addEventListener('touchend', end);
-  }
-
-  function init() {
-    if (!isProductPage()) return;
-
-    state.ui = createWidget();
-    bindRecognition();
-    enableDrag();
-
-    state.ui.button.addEventListener('click', async () => {
-      if (state.active) {
-        stopConversation();
+    bindRecognition() {
+      const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (!Recognition) {
+        this.setStatus('المتصفح لا يدعم التعرف الصوتي');
         return;
       }
-      await startConversation();
-    });
+
+      const recognition = new Recognition();
+      this.state.recognition = recognition;
+      recognition.lang = SETTINGS.lang;
+      recognition.continuous = false;
+      recognition.interimResults = false;
+
+      recognition.onresult = async (event) => {
+        this.state.listening = false;
+        const transcript = event.results?.[0]?.[0]?.transcript?.trim();
+        if (!transcript) return this.safeStartListening();
+
+        this.pushMemory('user', transcript);
+
+        try {
+          const ai = await this.sendChat(transcript);
+          this.pushMemory('assistant', ai.reply || '');
+          (this.actions[ai.action] || this.actions.none)();
+          await this.speak(ai.reply || 'سمحيلي، عاودي السؤال.');
+        } catch {
+          await this.speak('سمحيلي، كاين مشكل تقني صغير. عاودي من فضلك.');
+        }
+
+        if (this.state.active) setTimeout(() => this.safeStartListening(), 420);
+      };
+
+      recognition.onerror = async () => {
+        this.state.listening = false;
+        if (!this.state.active) return;
+        await this.speak('ما سمعتش مليح. عاودي من فضلك.');
+        this.safeStartListening();
+      };
+
+      recognition.onend = () => {
+        this.state.listening = false;
+        if (this.state.active && !this.state.speaking) setTimeout(() => this.safeStartListening(), 300);
+      };
+    }
+
+    init() {
+      if (!this.isProductPage()) return;
+
+      this.state.ui = this.createUI();
+      this.bindRecognition();
+      this.bindDrag();
+
+      this.state.ui.button.addEventListener('click', async (e) => {
+        if (this.state.dragging) {
+          e.preventDefault();
+          return;
+        }
+
+        if (this.state.active) return this.stopConversation();
+        return this.startConversation();
+      });
+    }
   }
 
+  const boot = () => new VoiceSalesAssistant().init();
+
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', init, { once: true });
+    document.addEventListener('DOMContentLoaded', boot, { once: true });
   } else {
-    init();
+    boot();
   }
 })();

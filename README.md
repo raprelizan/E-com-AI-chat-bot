@@ -1,29 +1,29 @@
-# Shopify AI Voice Sales Assistant (Production-Ready)
+# Shopify AI Voice Sales Assistant (Pro v2)
 
-A real Shopify widget + Node backend that delivers a voice-based sales assistant for product pages.
+مساعد تسويقي صوتي احترافي لصفحات المنتجات في Shopify مع:
+- محادثة صوتية مستمرة (دارجة/عربية)
+- Intent + Action ذكي
+- تنفيذ آمن للأوامر على الصفحة (سعر/صور/مراجعات/شراء)
+- Backend قوي مع Gemini 2.5 Flash + fallback ذكي
 
-## What You Get
+## المميزات الأساسية
 
-- ✅ Real Shopify theme integration (`theme.liquid` + snippet + assets)
-- ✅ Voice input (Web Speech API Speech-to-Text)
-- ✅ Voice output (Google TTS via free endpoint, with browser TTS fallback)
-- ✅ Arabic-first conversation (Darija-friendly) with continuous voice mode
-- ✅ Intent detection (`curious`, `hesitant`, `price inquiry`, `quality inquiry`, `ready to buy`)
-- ✅ Action system (`scroll_price`, `scroll_images`, `scroll_reviews`, `buy`, `none`)
-- ✅ Automatic Add to Cart trigger on valid product pages
-- ✅ Page intelligence extraction (title, price, images, reviews)
-- ✅ Local memory (last 5 interactions)
-- ✅ Luxury female Algerian seller persona
-- ✅ Lightweight and non-blocking lazy load
+- Voice STT عبر Web Speech API
+- Voice TTS عبر Google TTS endpoint + Browser fallback
+- شخصية بائعة جزائرية مقنعة
+- ذاكرة آخر 5 تفاعلات
+- Widget صغير قابل للسحب
+- تحميل Lazy (non-blocking)
+- حماية أساسية: Rate limit + CORS allowlist
 
 ---
 
-## Project Structure
+## بنية المشروع
 
 ```
 backend/
-  package.json
   server.js
+  package.json
   .env.example
 frontend/
   assets/
@@ -35,131 +35,85 @@ frontend/
 
 ---
 
-## 1) Backend Setup (Node.js + Gemini)
-
-### Requirements
-
-- Node 18+
-- Gemini API key (free-tier available on Google AI Studio)
-
-### Install & Run
+## 1) تشغيل الـ Backend
 
 ```bash
 cd backend
 npm install
 cp .env.example .env
-# edit .env and set GEMINI_API_KEY
+# عدل GEMINI_API_KEY + ALLOWED_ORIGINS
 npm run start
 ```
 
-
-Example `.env` (replace with your own real key):
+ملف `.env` (مثال):
 
 ```env
 PORT=8787
 GEMINI_API_KEY=REPLACE_WITH_YOUR_GEMINI_API_KEY
 GEMINI_MODEL=gemini-2.5-flash
-GEMINI_PROJECT_NAME=projects/102922610260
-GEMINI_PROJECT_NUMBER=102922610260
+ALLOWED_ORIGINS=https://your-store.myshopify.com,https://unretired-update-cadet.ngrok-free.dev
 ```
 
-Default backend URL:
-
-- `https://unretired-update-cadet.ngrok-free.dev` (recommended for Shopify via ngrok)
-- `http://localhost:8787` (local direct testing)
-
-### Endpoints
-
-- `GET /health` → healthcheck
-- `POST /chat` → AI sales response + intent + action
-- `GET /tts?text=...` → Google-TTS URL response
+Endpoints:
+- `GET /health`
+- `POST /chat`
+- `GET /tts?text=...&lang=ar`
 
 ---
 
-## 2) Shopify Installation
+## 2) ربطه مع Shopify
 
-### A. Upload Assets and Snippet
+### ارفع الملفات التالية للثيم
+- `assets/voice-assistant.js`
+- `assets/voice-assistant.css`
+- `snippets/ai-voice-assistant.liquid`
 
-In Shopify Admin:
-
-1. Go to **Online Store → Themes**
-2. Click **... → Edit code**
-3. Upload/create these files:
-   - `assets/voice-assistant.js` (copy from `frontend/assets/voice-assistant.js`)
-   - `assets/voice-assistant.css` (copy from `frontend/assets/voice-assistant.css`)
-   - `snippets/ai-voice-assistant.liquid` (copy from `frontend/snippets/ai-voice-assistant.liquid`)
-
-### B. Inject in `theme.liquid`
-
-Open `layout/theme.liquid` and insert before `</body>`:
+### أضف في `layout/theme.liquid` قبل `</body>`
 
 ```liquid
 {% render 'ai-voice-assistant', api_base: 'https://unretired-update-cadet.ngrok-free.dev' %}
 ```
 
-> Replace with your deployed backend URL (must be HTTPS for production).
-
-### C. Verify on Product Pages
-
-- Open any product page (`/products/...`)
-- You should see a compact floating assistant button on left middle (draggable)
-- Click 🎤 once to start continuous voice conversation (tap same button again to stop)
-- Assistant listens/replies in Arabic (Darija-friendly), classifies intent, and may scroll/click add-to-cart
-
 ---
 
-## 3) Action Contract (AI → Frontend)
+## 3) كيف يعمل
 
-Backend always returns JSON:
+1. نقرة على زر 🎙 تبدأ المحادثة
+2. نقرة ثانية توقف المحادثة
+3. النظام يسمع → يرسل `/chat` مع context + memory
+4. backend يرجع `intent/action/reply`
+5. frontend ينفذ action آمن ويتكلم بالرد
+
+Action Contract:
 
 ```json
 {
-  "reply": "soft persuasive response",
-  "action": "scroll_price|scroll_images|scroll_reviews|buy|none",
+  "reply": "...",
   "intent": "curious|hesitant|price inquiry|quality inquiry|ready to buy",
-  "reasoning": "short explanation"
+  "action": "scroll_price|scroll_images|scroll_reviews|buy|none",
+  "reasoning": "..."
 }
 ```
 
-Frontend executes `action` safely via mapped handlers.
+---
+
+## 4) لماذا هذا الإصدار أقوى
+
+- منع تكرار الردود (anti-repeat)
+- fallback ذكي حسب نية المستخدم
+- تنظيف الردود غير العربية
+- نموذج Gemini 2.5 Flash افتراضي
+- واجهة مضغوطة احترافية قابلة للسحب
 
 ---
 
-## 4) Production Notes
+## 5) فحص سريع
 
-- Use HTTPS backend (Render, Railway, Fly.io, etc.)
-- Add CORS allow-list for your shop domain(s)
-- Keep Gemini temperature low for stable action JSON
-- The assistant lazy-loads to avoid blocking first render
-- Voice features depend on browser permissions and Web Speech support
+```bash
+# backend syntax
+cd backend && npm run check
 
----
-
-## 5) No-Paid-API Constraint
-
-This implementation uses:
-
-- Gemini API free tier
-- `google-tts-api` free endpoint style URL
-- Browser-native SpeechSynthesis fallback (free)
-
-No mandatory paid APIs required.
-
----
-
-## 6) Customization Tips
-
-- Persona prompt: edit `SYSTEM_PROMPT` in `backend/server.js`
-- Widget design: edit `frontend/assets/voice-assistant.css`
-- Product selectors per theme: edit `findPriceElement`, `findImagesElement`, `findReviewsElement` in `voice-assistant.js`
-
----
-
-## 7) Security Hardening (Recommended)
-
-- Add API auth token between Shopify script and backend
-- Rate limit `/chat`
-- Validate origin/referer
-- Log and monitor action outputs
-- Add server-side sanitization for all inputs
+# health
+curl https://unretired-update-cadet.ngrok-free.dev/health
+```
 
