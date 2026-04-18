@@ -98,16 +98,25 @@ function shouldReplaceReply(text = '') {
   return latinHeavy || !hasArabicChars(text);
 }
 
-function fallbackReply(intent, context = {}) {
+function fallbackReply(intent, context = {}, userText = '') {
   const title = context.title || 'الساعة';
-  const price = context.price || 'متوفر في الصفحة';
+  const price = context.price || 'مبيّن في الصفحة';
+  const text = (userText || '').toLowerCase();
+
+  if (/(السلام|مرحبا|اهلا|hello|hi)/i.test(text)) {
+    return `يا مرحبا 💜 أنا نادية. إذا تحبي نبدأ بالسعر، الصور، الجودة، ولا نضيف ${title} للسلة مباشرة.`;
+  }
+
+  if (/(لون|الوان|color|size|مقاس|قياس)/i.test(text)) {
+    return `نقدر نعاونك بالموديل والشكل المتوفر، ونقدر نوديك مباشرة لصور ${title} باش تشوفي التفاصيل.`;
+  }
 
   const variants = {
     'ready to buy': `ممتاز ✨ ${title} اختيار راقٍ، نقدر نضيفها مباشرة للسلة الآن إذا حبيتي.`,
     'price inquiry': `أكيد 👌 سعر ${title} ظاهر في الصفحة: ${price}. إذا تحبي نوديك مباشرة لمكان السعر.`,
     'quality inquiry': `من ناحية الجودة، نقدر نوجّهك حالًا لقسم التقييمات والمراجعات باش تشوفي آراء الزبونات.`,
     hesitant: `عادي خذي وقتك 💜 إذا تحبي نعاونك خطوة بخطوة ونبدأ بالسعر أو الصور.`,
-    curious: `يا هلا 💫 قوليلي بالضبط وش تحبي تعرفي على ${title}: السعر، الصور، ولا الجودة؟`
+    curious: `فهمتك 👌 قوليلي وش تحبي بالضبط على ${title}: السعر، الصور، الجودة، ولا الشراء مباشرة؟`
   };
 
   return variants[intent] || variants.curious;
@@ -126,7 +135,7 @@ function normalizeResponse(raw, payload) {
 
   let reply = String(raw?.reply || '').trim();
   if (!reply || shouldReplaceReply(reply)) {
-    reply = fallbackReply(intent, payload.context || {});
+    reply = fallbackReply(intent, payload.context || {}, userText);
   }
 
   return {
@@ -140,7 +149,7 @@ function normalizeResponse(raw, payload) {
 function buildFallbackResponse(payload) {
   const intent = ruleBasedIntent(payload.message || '');
   return {
-    reply: fallbackReply(intent, payload.context || {}),
+    reply: fallbackReply(intent, payload.context || {}, payload.message || ''),
     action: actionFromIntent(intent, payload.message || ''),
     intent,
     reasoning: 'Rule fallback used'
