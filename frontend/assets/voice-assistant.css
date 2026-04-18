@@ -1,0 +1,53 @@
+.va-widget {
+  position: fixed;
+  left: 16px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 240px;
+  background: #ffffff;
+  border: 1px solid #ece4ff;
+  border-radius: 14px;
+  box-shadow: 0 12px 28px rgba(25, 18, 38, 0.16);
+  padding: 12px;
+  z-index: 9999;
+  font-family: Inter, Arial, sans-serif;
+}
+
+.va-title {
+  font-weight: 600;
+  color: #5f3dc4;
+  margin-bottom: 8px;
+}
+
+.va-status {
+  color: #333;
+  font-size: 13px;
+  min-height: 40px;
+  line-height: 1.4;
+}
+
+.va-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.va-btn {
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  border: none;
+  background: #f3e8ff;
+  cursor: pointer;
+  font-size: 18px;
+}
+
+.va-btn-stop {
+  background: #fee2e2;
+}
+
+.va-highlight {
+  outline: 3px solid #8b5cf6 !important;
+  border-radius: 8px;
+  transition: outline 0.3s ease;
+}
