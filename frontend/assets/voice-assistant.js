@@ -1,8 +1,9 @@
 (() => {
   const CONFIG = window.ShopifyVoiceAssistantConfig || {};
   const API_BASE = CONFIG.apiBase || 'http://localhost:8787';
-  const MEMORY_KEY = 'shopify_voice_assistant_memory_v1';
-  const MAX_MEMORY = 5;
+  const MEMORY_KEY = 'shopify_voice_assistant_memory_v2';
+  const USER_ID_KEY = 'shopify_voice_assistant_user_id';
+  const MAX_MEMORY = 10;
 
   const actionMap = {
     scroll_price: () => scrollToAndHighlight(findPriceElement()),
@@ -11,6 +12,14 @@
     buy: () => clickAddToCart(),
     none: () => {}
   };
+
+  function getOrCreateUserId() {
+    const cached = localStorage.getItem(USER_ID_KEY);
+    if (cached) return cached;
+    const userId = `guest-${Math.random().toString(36).slice(2, 10)}`;
+    localStorage.setItem(USER_ID_KEY, userId);
+    return userId;
+  }
 
   function loadMemory() {
     try {
@@ -30,17 +39,51 @@
     saveMemory(memory);
   }
 
+  function inferTrafficSource() {
+    const source = document.referrer || '';
+    if (/tiktok/i.test(source)) return 'tiktok';
+    if (/linkedin/i.test(source)) return 'linkedin';
+    if (/google|bing/i.test(source)) return 'search';
+    return 'direct';
+  }
+
+  function getVisibleText() {
+    const selectors = ['main', '.product', '.product__info-wrapper', '.product-single'];
+    for (const selector of selectors) {
+      const node = document.querySelector(selector);
+      if (node?.innerText) return node.innerText.slice(0, 1200);
+    }
+    return document.body?.innerText?.slice(0, 1200) || '';
+  }
+
   function getPageContext() {
     const titleEl = document.querySelector('h1.product__title, .product__title, h1');
     const priceEl = findPriceElement();
     const imageEls = [...document.querySelectorAll('.product__media img, .product-gallery img, img.product__image')].slice(0, 5);
     const reviewEl = findReviewsElement();
+    const productId = document.querySelector('[name="id"]')?.value || document.querySelector('[data-product-id]')?.getAttribute('data-product-id') || '';
 
     return {
       title: titleEl?.textContent?.trim() || document.title,
       price: priceEl?.textContent?.trim() || '',
       images: imageEls.map((img) => img.src).filter(Boolean),
-      reviews: reviewEl?.textContent?.trim()?.slice(0, 400) || ''
+      reviews: reviewEl?.textContent?.trim()?.slice(0, 400) || '',
+      visibleText: getVisibleText(),
+      productId,
+      viewedProducts: productId ? [productId] : []
+    };
+  }
+
+  function getUserContext() {
+    const locale = (navigator.language || 'en-US').toLowerCase();
+    const country = locale.split('-')[1] || '';
+
+    return {
+      id: getOrCreateUserId(),
+      country,
+      trafficSource: inferTrafficSource(),
+      device: /mobile/i.test(navigator.userAgent) ? 'mobile' : 'desktop',
+      behavior: loadMemory().length > 4 ? 'engaged' : 'new'
     };
   }
 
@@ -73,13 +116,8 @@
   function browserSpeak(text) {
     if (!('speechSynthesis' in window)) return;
     const utterance = new SpeechSynthesisUtterance(text);
-    utterance.rate = 0.92;
-    utterance.pitch = 1.08;
-
-    const voices = speechSynthesis.getVoices();
-    const preferred = voices.find((v) => /female|zira|samantha|google us english/i.test(v.name));
-    if (preferred) utterance.voice = preferred;
-
+    utterance.rate = 0.94;
+    utterance.pitch = 1.04;
     speechSynthesis.cancel();
     speechSynthesis.speak(utterance);
   }
@@ -104,7 +142,8 @@
     const payload = {
       message,
       memory: loadMemory(),
-      context: getPageContext()
+      context: getPageContext(),
+      user: getUserContext()
     };
 
     const res = await fetch(`${API_BASE}/chat`, {
@@ -121,7 +160,7 @@
     const root = document.createElement('div');
     root.className = 'va-widget';
     root.innerHTML = `
-      <div class="va-title">Nadia • Voice Seller</div>
+      <div class="va-title">AI Sales Assistant</div>
       <div class="va-status" id="va-status">Tap mic to talk</div>
       <div class="va-actions">
         <button id="va-mic" class="va-btn" aria-label="start voice">🎤</button>
@@ -180,14 +219,14 @@
       try {
         const ai = await sendChat(transcript);
         addMemoryEntry('assistant', ai.reply);
-        ui.status.textContent = `Nadia (${ai.intent}): ${ai.reply}`;
+        ui.status.textContent = `Assistant (${ai.stage}): ${ai.reply}`;
 
         const execute = actionMap[ai.action] || actionMap.none;
         execute();
 
         speak(ai.reply);
       } catch {
-        const fallback = 'I am here to help you discover this luxury piece. Would you like price or reviews first?';
+        const fallback = 'I can help you pick the best fit quickly. What is your budget range?';
         ui.status.textContent = fallback;
         speak(fallback);
       }
@@ -198,9 +237,13 @@
     };
 
     if ('requestIdleCallback' in window) {
-      requestIdleCallback(() => ui.status.textContent = 'Ready when you are ✨');
+      requestIdleCallback(() => {
+        ui.status.textContent = 'Ready to help you choose the best product ✨';
+      });
     } else {
-      setTimeout(() => ui.status.textContent = 'Ready when you are ✨', 500);
+      setTimeout(() => {
+        ui.status.textContent = 'Ready to help you choose the best product ✨';
+      }, 500);
     }
   }
 
