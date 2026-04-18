@@ -69,6 +69,28 @@ function actionFromIntent(intent = 'curious', text = '') {
   return 'none';
 }
 
+function hashSeed(text = '') {
+  let h = 0;
+  for (let i = 0; i < text.length; i += 1) h = ((h << 5) - h) + text.charCodeAt(i);
+  return Math.abs(h);
+}
+
+function pickVariant(variants, seedText = '') {
+  if (!variants.length) return '';
+  return variants[hashSeed(seedText) % variants.length];
+}
+
+function normalizeSimple(text = '') {
+  return text.replace(/\s+/g, ' ').trim().toLowerCase();
+}
+
+function isRepeatedReply(reply = '', memory = []) {
+  const normalized = normalizeSimple(reply);
+  if (!normalized) return false;
+  const lastAssistant = (memory || []).filter((m) => m.role === 'assistant').slice(-2).map((m) => normalizeSimple(m.text || ''));
+  return lastAssistant.includes(normalized);
+}
+
 function safeJsonParse(text) {
   try {
     return JSON.parse(text);
@@ -99,27 +121,56 @@ function shouldReplaceReply(text = '') {
 }
 
 function fallbackReply(intent, context = {}, userText = '') {
-  const title = context.title || 'الساعة';
-  const price = context.price || 'مبيّن في الصفحة';
+  const title = context.title || 'هاد المنتج';
+  const price = context.price || 'يبان في الصفحة';
   const text = (userText || '').toLowerCase();
 
   if (/(السلام|مرحبا|اهلا|hello|hi)/i.test(text)) {
-    return `يا مرحبا 💜 أنا نادية. إذا تحبي نبدأ بالسعر، الصور، الجودة، ولا نضيف ${title} للسلة مباشرة.`;
+    return pickVariant([
+      'يا هلا 💜 أنا نادية، قوليلي تحبي نبدأ بالسعر ولا الجودة ولا الصور؟',
+      'مرحبا بيك ✨ أنا هنا نعاونك، تحبي تشوفي السعر ولا التقييمات؟',
+      'أهلا وسهلا 🌸 نقدر نرشدك بسرعة للسعر، الصور، أو الشراء مباشرة.'
+    ], userText);
   }
 
-  if (/(لون|الوان|color|size|مقاس|قياس)/i.test(text)) {
-    return `نقدر نعاونك بالموديل والشكل المتوفر، ونقدر نوديك مباشرة لصور ${title} باش تشوفي التفاصيل.`;
+  if (/(شحن|توصيل|delivery|وصل|مدة)/i.test(text)) {
+    return pickVariant([
+      'بخصوص التوصيل، نقدر نكملك بالمعلومات المتوفرة في المتجر قبل إتمام الطلب.',
+      'أكيد، نقدر نعاونك بخطوات الشحن مباشرة من صفحة المنتج والسلة.'
+    ], userText);
+  }
+
+  if (/(ارجاع|استرجاع|return|refund|ضمان)/i.test(text)) {
+    return pickVariant([
+      'على الضمان والإرجاع، الأفضل نراجع تفاصيل سياسة المتجر ونوريهالك مباشرة.',
+      'نقدر نوجهك لقسم المراجعات والسياسة باش تتأكدي قبل الشراء.'
+    ], userText);
   }
 
   const variants = {
-    'ready to buy': `ممتاز ✨ ${title} اختيار راقٍ، نقدر نضيفها مباشرة للسلة الآن إذا حبيتي.`,
-    'price inquiry': `أكيد 👌 سعر ${title} ظاهر في الصفحة: ${price}. إذا تحبي نوديك مباشرة لمكان السعر.`,
-    'quality inquiry': `من ناحية الجودة، نقدر نوجّهك حالًا لقسم التقييمات والمراجعات باش تشوفي آراء الزبونات.`,
-    hesitant: `عادي خذي وقتك 💜 إذا تحبي نعاونك خطوة بخطوة ونبدأ بالسعر أو الصور.`,
-    curious: `فهمتك 👌 قوليلي وش تحبي بالضبط على ${title}: السعر، الصور، الجودة، ولا الشراء مباشرة؟`
+    'ready to buy': [
+      `ممتاز ✨ إذا موافقة نضيف ${title} للسلة الآن مباشرة.`,
+      'جاهزين للشراء 👌 نقدر نكملك بخطوة إضافة للسلة حالًا.'
+    ],
+    'price inquiry': [
+      `أكيد 👌 السعر ظاهر في الصفحة (${price})، نحركك مباشرة لمكانه؟`,
+      'نقدر نديك مباشرة لقسم السعر باش تشوفيه بوضوح.'
+    ],
+    'quality inquiry': [
+      'من ناحية الجودة، نخليك تشوفي التقييمات والمراجعات باش تاخذي قرار واثق.',
+      'نقدر نوجّهك لقسم الجودة والمراجعات فورًا.'
+    ],
+    hesitant: [
+      'عادي خذي وقتك 💜 نقدر نبدأ بأبسط نقطة: السعر أو الصور.',
+      'ماكان حتى ضغط، نعاونك خطوة بخطوة حتى تكوني مرتاحة.'
+    ],
+    curious: [
+      'فهمتك 👌 قوليلي تحبي السعر، الصور، الجودة، ولا الشراء مباشرة؟',
+      `تحبي نبدأ بسعر ${title} ولا بصوره ولا بالتقييمات؟`
+    ]
   };
 
-  return variants[intent] || variants.curious;
+  return pickVariant(variants[intent] || variants.curious, userText);
 }
 
 function normalizeResponse(raw, payload) {
@@ -136,6 +187,10 @@ function normalizeResponse(raw, payload) {
   let reply = String(raw?.reply || '').trim();
   if (!reply || shouldReplaceReply(reply)) {
     reply = fallbackReply(intent, payload.context || {}, userText);
+  }
+
+  if (isRepeatedReply(reply, payload.memory || [])) {
+    reply = fallbackReply(intent, payload.context || {}, `${userText}-${Date.now()}`);
   }
 
   return {
