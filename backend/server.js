@@ -9,6 +9,9 @@ const PORT = Number(process.env.PORT || 8787);
 const MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
 const API_KEY = process.env.GEMINI_API_KEY || '';
 const ai = API_KEY ? new GoogleGenAI({ apiKey: API_KEY }) : null;
+const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY || '';
+const ELEVENLABS_VOICE_ID = process.env.ELEVENLABS_VOICE_ID || 'EXAVITQu4vr4xnSDxMaL';
+const ELEVENLABS_MODEL_ID = process.env.ELEVENLABS_MODEL_ID || 'eleven_multilingual_v2';
 
 const ACTIONS = ['scroll_price', 'scroll_images', 'scroll_reviews', 'buy', 'none'];
 const INTENTS = ['curious', 'hesitant', 'price inquiry', 'quality inquiry', 'ready to buy'];
@@ -209,6 +212,7 @@ app.get('/health', (_req, res) => {
     service: 'shopify-ai-voice-sales-assistant',
     geminiConfigured: Boolean(API_KEY),
     model: MODEL,
+    elevenlabsConfigured: Boolean(ELEVENLABS_API_KEY),
     allowedOrigins: allowedOrigins.length ? allowedOrigins : ['*']
   });
 });
@@ -255,6 +259,38 @@ app.get('/tts', rateLimit, async (req, res) => {
   const lang = String(req.query.lang || 'ar').toLowerCase();
   if (!text) return res.status(400).json({ error: 'text query param required' });
 
+  if (ELEVENLABS_API_KEY) {
+    try {
+      const voiceUrl = `https://api.elevenlabs.io/v1/text-to-speech/${ELEVENLABS_VOICE_ID}`;
+      const r = await fetch(voiceUrl, {
+        method: 'POST',
+        headers: {
+          'xi-api-key': ELEVENLABS_API_KEY,
+          'Accept': 'audio/mpeg',
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          text: text.slice(0, 450),
+          model_id: ELEVENLABS_MODEL_ID,
+          voice_settings: {
+            stability: 0.45,
+            similarity_boost: 0.85,
+            style: 0.35,
+            use_speaker_boost: true
+          }
+        })
+      });
+
+      if (r.ok) {
+        const arr = Buffer.from(await r.arrayBuffer());
+        const dataUrl = `data:audio/mpeg;base64,${arr.toString('base64')}`;
+        return res.json({ url: dataUrl, provider: 'elevenlabs' });
+      }
+    } catch {
+      // fallback below
+    }
+  }
+
   const allowed = new Set(['ar', 'fr', 'en']);
   const safeLang = allowed.has(lang) ? lang : 'ar';
 
@@ -264,9 +300,9 @@ app.get('/tts', rateLimit, async (req, res) => {
       slow: false,
       host: 'https://translate.google.com'
     });
-    return res.json({ url });
+    return res.json({ url, provider: 'google-tts-api' });
   } catch {
-    return res.status(500).json({ error: 'Failed to generate TTS URL' });
+    return res.status(500).json({ error: 'Failed to generate TTS audio' });
   }
 });
 

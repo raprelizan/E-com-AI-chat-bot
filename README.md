@@ -9,7 +9,7 @@
 ## المميزات الأساسية
 
 - Voice STT عبر Web Speech API
-- Voice TTS عبر Google TTS endpoint + Browser fallback
+- Voice TTS عبر ElevenLabs (أساسي) + Google-TTS/Browser fallback
 - شخصية بائعة جزائرية مقنعة
 - ذاكرة آخر 5 تفاعلات
 - Widget صغير قابل للسحب
@@ -41,7 +41,7 @@ frontend/
 cd backend
 npm install
 cp .env.example .env
-# عدل GEMINI_API_KEY + ALLOWED_ORIGINS
+# عدل GEMINI_API_KEY + ELEVENLABS_API_KEY + ALLOWED_ORIGINS
 npm run start
 ```
 
@@ -51,13 +51,16 @@ npm run start
 PORT=8787
 GEMINI_API_KEY=REPLACE_WITH_YOUR_GEMINI_API_KEY
 GEMINI_MODEL=gemini-2.5-flash
+ELEVENLABS_API_KEY=REPLACE_WITH_YOUR_ELEVENLABS_API_KEY
+ELEVENLABS_VOICE_ID=EXAVITQu4vr4xnSDxMaL
+ELEVENLABS_MODEL_ID=eleven_multilingual_v2
 ALLOWED_ORIGINS=https://your-store.myshopify.com,https://unretired-update-cadet.ngrok-free.dev
 ```
 
 Endpoints:
 - `GET /health`
 - `POST /chat`
-- `GET /tts?text=...&lang=ar`
+- `GET /tts?text=...&lang=ar` (ElevenLabs أولاً ثم fallback)
 
 ---
 
