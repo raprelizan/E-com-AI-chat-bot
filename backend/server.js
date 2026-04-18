@@ -15,11 +15,11 @@ const ai = geminiApiKey ? new GoogleGenAI({ apiKey: geminiApiKey }) : null;
 const geminiProjectName = process.env.GEMINI_PROJECT_NAME || '';
 const geminiProjectNumber = process.env.GEMINI_PROJECT_NUMBER || '';
 
-const SYSTEM_PROMPT = `You are Nadia, a female Algerian luxury sales assistant for women's watches.
-Tone: soft, warm, persuasive, confident, concise.
+const SYSTEM_PROMPT = `أنتِ نادية، بائعة جزائرية راقية لساعات نسائية فاخرة.
+النبرة: أنثوية ناعمة، مقنعة، مختصرة، ودائمًا بالعربية (يفضّل الدارجة الجزائرية المفهومة).
 
-You receive a shopper message plus product/page context.
-You must output STRICT JSON only with this schema:
+ستستلمين رسالة العميل + سياق صفحة المنتج + ذاكرة المحادثة.
+يجب أن يكون الخرج JSON فقط وبدون أي نص إضافي بالشكل التالي:
 {
   "reply": "string",
   "action": "scroll_price|scroll_images|scroll_reviews|buy|none",
@@ -27,45 +27,45 @@ You must output STRICT JSON only with this schema:
   "reasoning": "short explanation"
 }
 
-Rules:
-- Keep reply short and sales oriented (1-3 sentences).
-- If user asks cost, choose intent price inquiry and action scroll_price.
-- If user asks photo/look/design, action scroll_images.
-- If user asks quality/material/warranty/reviews, action scroll_reviews.
-- If user indicates they want to purchase, action buy and intent ready to buy.
-- If uncertain, action none.
-- Be honest, never fabricate product facts. Use provided context only.
-- Focus on moving customer toward checkout gently.
+قواعد:
+- الرد دائمًا بالعربية أو الدارجة الجزائرية فقط (لا ترد بالإنجليزية).
+- الرد يكون 1 إلى 2 جمل.
+- إذا السؤال عن السعر: intent = price inquiry و action = scroll_price.
+- إذا السؤال عن الصور/الشكل: action = scroll_images.
+- إذا السؤال عن الجودة/الخامة/الضمان/التقييمات: action = scroll_reviews.
+- إذا العميل جاهز للشراء: intent = ready to buy و action = buy.
+- إذا غير واضح: action = none.
+- لا تختلقي معلومات غير موجودة في السياق.
 `;
 
 function ruleBasedFallback(userText = '') {
   const text = userText.toLowerCase();
 
-  if (/(buy|take it|i want it|add to cart|i'll get it|i will get it|checkout)/i.test(text)) {
+  if (/(buy|take it|i want it|add to cart|i'll get it|i will get it|checkout|اشتري|شراء|خذيها|نخلص|سلة)/i.test(text)) {
     return {
       intent: 'ready to buy',
       action: 'buy'
     };
   }
-  if (/(price|cost|how much|expensive|discount)/i.test(text)) {
+  if (/(price|cost|how much|expensive|discount|السعر|الثمن|بشحال|قداش)/i.test(text)) {
     return {
       intent: 'price inquiry',
       action: 'scroll_price'
     };
   }
-  if (/(quality|material|warranty|reviews|good|durable|authentic)/i.test(text)) {
+  if (/(quality|material|warranty|reviews|good|durable|authentic|الجودة|الخام|الخامة|الضمان|تقييم|مراجعات)/i.test(text)) {
     return {
       intent: 'quality inquiry',
       action: 'scroll_reviews'
     };
   }
-  if (/(photo|image|look|design|color|style)/i.test(text)) {
+  if (/(photo|image|look|design|color|style|صور|شكل|تصميم|لون)/i.test(text)) {
     return {
       intent: 'curious',
       action: 'scroll_images'
     };
   }
-  if (/(not sure|hesitant|maybe|later|think)/i.test(text)) {
+  if (/(not sure|hesitant|maybe|later|think|مش متأكد|محتار|بعد|لاحقا)/i.test(text)) {
     return {
       intent: 'hesitant',
       action: 'none'
@@ -99,7 +99,7 @@ function buildFallbackResponse(payload) {
   const fallback = ruleBasedFallback(payload.message || '');
   const productName = payload.context?.title || 'this piece';
   return {
-    reply: `Great choice exploring ${productName}. I can show details or help you add it to cart whenever you're ready.`,
+    reply: `خيار رائع 👌 بالنسبة لـ ${productName}، نقدر نوريك السعر أو الصور أو التقييمات، وإذا حبيتي نضيفها مباشرة للسلة.`,
     action: fallback.action,
     intent: fallback.intent,
     reasoning: 'Fallback classification used because AI response was unavailable.'
@@ -172,14 +172,18 @@ app.post('/chat', async (req, res) => {
 
 app.get('/tts', async (req, res) => {
   const text = String(req.query.text || '').trim();
+  const lang = String(req.query.lang || 'ar').toLowerCase();
 
   if (!text) {
     return res.status(400).json({ error: 'text query param required' });
   }
 
+  const allowed = new Set(['ar', 'fr', 'en']);
+  const safeLang = allowed.has(lang) ? lang : 'ar';
+
   try {
     const url = googleTTS.getAudioUrl(text.slice(0, 180), {
-      lang: 'en',
+      lang: safeLang,
       slow: false,
       host: 'https://translate.google.com'
     });

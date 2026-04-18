@@ -7,6 +7,7 @@ A real Shopify widget + Node backend that delivers a voice-based sales assistant
 - ✅ Real Shopify theme integration (`theme.liquid` + snippet + assets)
 - ✅ Voice input (Web Speech API Speech-to-Text)
 - ✅ Voice output (Google TTS via free endpoint, with browser TTS fallback)
+- ✅ Arabic-first conversation (Darija-friendly) with continuous voice mode
 - ✅ Intent detection (`curious`, `hesitant`, `price inquiry`, `quality inquiry`, `ready to buy`)
 - ✅ Action system (`scroll_price`, `scroll_images`, `scroll_reviews`, `buy`, `none`)
 - ✅ Automatic Add to Cart trigger on valid product pages
@@ -101,8 +102,9 @@ Open `layout/theme.liquid` and insert before `</body>`:
 
 - Open any product page (`/products/...`)
 - You should see floating assistant on left middle
-- Click 🎤 to talk
-- Assistant replies, classifies intent, and may scroll/click add-to-cart
+- Click 🎤 once to start continuous voice conversation
+- Assistant listens/replies in Arabic (Darija-friendly), classifies intent, and may scroll/click add-to-cart
+- Click ⏹ to fully stop
 
 ---
 

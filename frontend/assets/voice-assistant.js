@@ -1,8 +1,17 @@
 (() => {
   const CONFIG = window.ShopifyVoiceAssistantConfig || {};
   const API_BASE = CONFIG.apiBase || 'http://localhost:8787';
+  const ASSISTANT_LANG = CONFIG.lang || 'ar-DZ';
+  const TTS_LANG = (CONFIG.ttsLang || 'ar').toLowerCase();
   const MEMORY_KEY = 'shopify_voice_assistant_memory_v1';
   const MAX_MEMORY = 5;
+
+  const state = {
+    active: false,
+    listening: false,
+    speaking: false,
+    recognition: null
+  };
 
   const actionMap = {
     scroll_price: () => scrollToAndHighlight(findPriceElement()),
@@ -40,7 +49,7 @@
       title: titleEl?.textContent?.trim() || document.title,
       price: priceEl?.textContent?.trim() || '',
       images: imageEls.map((img) => img.src).filter(Boolean),
-      reviews: reviewEl?.textContent?.trim()?.slice(0, 400) || ''
+      reviews: reviewEl?.textContent?.trim()?.slice(0, 500) || ''
     };
   }
 
@@ -67,43 +76,66 @@
     const addButton = document.querySelector('form[action*="/cart/add"] [type="submit"], button[name="add"], .product-form__submit');
     if (!addButton) return;
     scrollToAndHighlight(addButton);
-    setTimeout(() => addButton.click(), 300);
+    setTimeout(() => addButton.click(), 250);
+  }
+
+  function pickArabicFemaleVoice() {
+    const voices = speechSynthesis.getVoices();
+    return voices.find((v) => /ar|arabic/i.test(v.lang) && /female|amira|zira|sara|google/i.test(v.name))
+      || voices.find((v) => /ar|arabic/i.test(v.lang))
+      || voices.find((v) => /female|zira|samantha/i.test(v.name));
   }
 
   function browserSpeak(text) {
-    if (!('speechSynthesis' in window)) return;
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.rate = 0.92;
-    utterance.pitch = 1.08;
-
-    const voices = speechSynthesis.getVoices();
-    const preferred = voices.find((v) => /female|zira|samantha|google us english/i.test(v.name));
-    if (preferred) utterance.voice = preferred;
-
-    speechSynthesis.cancel();
-    speechSynthesis.speak(utterance);
-  }
-
-  async function speak(text) {
-    try {
-      const ttsResponse = await fetch(`${API_BASE}/tts?text=${encodeURIComponent(text)}`);
-      if (!ttsResponse.ok) throw new Error('tts-failed');
-      const data = await ttsResponse.json();
-      if (data.url) {
-        const audio = new Audio(data.url);
-        await audio.play();
+    return new Promise((resolve) => {
+      if (!('speechSynthesis' in window)) {
+        resolve();
         return;
       }
-      throw new Error('no-url');
+
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.lang = ASSISTANT_LANG;
+      utterance.rate = 0.93;
+      utterance.pitch = 1.05;
+      const voice = pickArabicFemaleVoice();
+      if (voice) utterance.voice = voice;
+      utterance.onend = () => resolve();
+      utterance.onerror = () => resolve();
+
+      speechSynthesis.cancel();
+      speechSynthesis.speak(utterance);
+    });
+  }
+
+  async function speak(text, ui) {
+    state.speaking = true;
+    ui.status.textContent = 'نادية تتكلم الآن...';
+
+    try {
+      const ttsResponse = await fetch(`${API_BASE}/tts?lang=${encodeURIComponent(TTS_LANG)}&text=${encodeURIComponent(text)}`);
+      if (!ttsResponse.ok) throw new Error('tts-failed');
+      const data = await ttsResponse.json();
+      if (!data.url) throw new Error('no-url');
+
+      await new Promise((resolve) => {
+        const audio = new Audio(data.url);
+        audio.onended = resolve;
+        audio.onerror = resolve;
+        audio.play().catch(resolve);
+      });
     } catch {
-      browserSpeak(text);
+      await browserSpeak(text);
     }
+
+    state.speaking = false;
   }
 
   async function sendChat(message) {
     const payload = {
       message,
       memory: loadMemory(),
+      locale: ASSISTANT_LANG,
+      responseLanguage: 'algerian_arabic',
       context: getPageContext()
     };
 
@@ -121,8 +153,8 @@
     const root = document.createElement('div');
     root.className = 'va-widget';
     root.innerHTML = `
-      <div class="va-title">Nadia • Voice Seller</div>
-      <div class="va-status" id="va-status">Tap mic to talk</div>
+      <div class="va-avatar">نادية</div>
+      <div class="va-status" id="va-status">اضغط 🎤 لبدء المحادثة الصوتية</div>
       <div class="va-actions">
         <button id="va-mic" class="va-btn" aria-label="start voice">🎤</button>
         <button id="va-stop" class="va-btn va-btn-stop" aria-label="stop">⏹</button>
@@ -141,67 +173,96 @@
     return /\/products\//.test(location.pathname) || !!document.querySelector('form[action*="/cart/add"]');
   }
 
+  function safeStartListening(ui) {
+    if (!state.active || state.listening || state.speaking || !state.recognition) return;
+    try {
+      state.recognition.start();
+      state.listening = true;
+      ui.status.textContent = 'أنا نسمع لك...';
+    } catch {
+      setTimeout(() => safeStartListening(ui), 400);
+    }
+  }
+
+  function stopAll(ui) {
+    state.active = false;
+    state.listening = false;
+    state.speaking = false;
+    if (state.recognition) {
+      try { state.recognition.stop(); } catch {}
+    }
+    speechSynthesis.cancel();
+    ui.status.textContent = 'تم الإيقاف.';
+  }
+
   function init() {
     if (!isProductPage()) return;
 
     const ui = createWidget();
     const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!Recognition) {
-      ui.status.textContent = 'Speech recognition unsupported in this browser.';
+      ui.status.textContent = 'المتصفح لا يدعم التعرف الصوتي.';
       return;
     }
 
     const recognition = new Recognition();
-    recognition.lang = CONFIG.lang || 'en-US';
+    state.recognition = recognition;
+    recognition.lang = ASSISTANT_LANG;
     recognition.continuous = false;
     recognition.interimResults = false;
 
-    ui.mic.addEventListener('click', () => {
-      ui.status.textContent = 'Listening...';
-      recognition.start();
+    ui.mic.addEventListener('click', async () => {
+      if (!state.active) {
+        state.active = true;
+        ui.status.textContent = 'بدأنا. تكلم براحتك.';
+        await speak('سلام، أنا نادية. قولي وش تحبي نعاونك؟', ui);
+      }
+      safeStartListening(ui);
     });
 
-    ui.stop.addEventListener('click', () => {
-      recognition.stop();
-      speechSynthesis.cancel();
-      ui.status.textContent = 'Stopped.';
-    });
+    ui.stop.addEventListener('click', () => stopAll(ui));
 
     recognition.onresult = async (event) => {
+      state.listening = false;
       const transcript = event.results?.[0]?.[0]?.transcript?.trim();
       if (!transcript) {
-        ui.status.textContent = 'I did not catch that.';
+        if (state.active) safeStartListening(ui);
         return;
       }
 
       addMemoryEntry('user', transcript);
-      ui.status.textContent = `You: ${transcript}`;
 
       try {
         const ai = await sendChat(transcript);
         addMemoryEntry('assistant', ai.reply);
-        ui.status.textContent = `Nadia (${ai.intent}): ${ai.reply}`;
 
         const execute = actionMap[ai.action] || actionMap.none;
         execute();
 
-        speak(ai.reply);
+        await speak(ai.reply, ui);
       } catch {
-        const fallback = 'I am here to help you discover this luxury piece. Would you like price or reviews first?';
-        ui.status.textContent = fallback;
-        speak(fallback);
+        await speak('سمحيلي، ما فهمتش مليح. عاودي السؤال بطريقة بسيطة.', ui);
+      }
+
+      if (state.active) {
+        setTimeout(() => safeStartListening(ui), 450);
       }
     };
 
-    recognition.onerror = () => {
-      ui.status.textContent = 'Voice error. Tap mic and try again.';
+    recognition.onerror = async () => {
+      state.listening = false;
+      if (state.active) {
+        await speak('ما قدرتش نسمع مليح. عاودي من فضلك.', ui);
+        safeStartListening(ui);
+      }
     };
 
-    if ('requestIdleCallback' in window) {
-      requestIdleCallback(() => ui.status.textContent = 'Ready when you are ✨');
-    } else {
-      setTimeout(() => ui.status.textContent = 'Ready when you are ✨', 500);
-    }
+    recognition.onend = () => {
+      state.listening = false;
+      if (state.active && !state.speaking) {
+        setTimeout(() => safeStartListening(ui), 350);
+      }
+    };
   }
 
   if (document.readyState === 'loading') {

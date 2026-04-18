@@ -1,45 +1,55 @@
 .va-widget {
   position: fixed;
-  left: 16px;
+  left: 18px;
   top: 50%;
   transform: translateY(-50%);
-  width: 240px;
-  background: #ffffff;
-  border: 1px solid #ece4ff;
-  border-radius: 14px;
-  box-shadow: 0 12px 28px rgba(25, 18, 38, 0.16);
-  padding: 12px;
+  width: 220px;
+  background: linear-gradient(180deg, #ffffff 0%, #faf7ff 100%);
+  border: 1px solid #e9defe;
+  border-radius: 20px;
+  box-shadow: 0 16px 34px rgba(54, 28, 99, 0.16);
+  padding: 14px;
   z-index: 9999;
-  font-family: Inter, Arial, sans-serif;
+  font-family: "Cairo", Inter, Arial, sans-serif;
+  text-align: center;
 }
 
-.va-title {
-  font-weight: 600;
-  color: #5f3dc4;
-  margin-bottom: 8px;
+.va-avatar {
+  width: 64px;
+  height: 64px;
+  margin: 0 auto 10px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 30% 30%, #e9d5ff, #8b5cf6);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
 }
 
 .va-status {
-  color: #333;
+  color: #2c2545;
   font-size: 13px;
-  min-height: 40px;
-  line-height: 1.4;
+  min-height: 36px;
+  line-height: 1.5;
 }
 
 .va-actions {
   display: flex;
-  gap: 10px;
-  margin-top: 10px;
+  justify-content: center;
+  gap: 12px;
+  margin-top: 12px;
 }
 
 .va-btn {
-  width: 42px;
-  height: 42px;
+  width: 46px;
+  height: 46px;
   border-radius: 50%;
   border: none;
   background: #f3e8ff;
   cursor: pointer;
-  font-size: 18px;
+  font-size: 19px;
+  box-shadow: 0 6px 14px rgba(116, 69, 190, 0.22);
 }
 
 .va-btn-stop {
