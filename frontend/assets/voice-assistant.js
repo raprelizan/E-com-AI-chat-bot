@@ -18,7 +18,8 @@
         dragging: false,
         recognition: null,
         ui: null,
-        dragStart: null
+        dragStart: null,
+        provider: 'unknown'
       };
 
       this.actions = {
@@ -96,6 +97,10 @@
       if (this.state.ui?.status) this.state.ui.status.textContent = text;
     }
 
+    setMeta(text) {
+      if (this.state.ui?.meta) this.state.ui.meta.textContent = text;
+    }
+
     setActiveVisual(active) {
       this.state.ui?.button?.classList.toggle('va-fab-active', active);
     }
@@ -131,6 +136,8 @@
         const r = await fetch(`${SETTINGS.apiBase}/tts?lang=${encodeURIComponent(SETTINGS.ttsLang)}&text=${encodeURIComponent(text)}`);
         if (!r.ok) throw new Error('tts');
         const data = await r.json();
+        this.state.provider = data.provider || 'unknown';
+        if (data.provider) this.setMeta(`المزود الصوتي: ${data.provider}`);
         if (!data.url) throw new Error('tts-url');
 
         await new Promise((resolve) => {
@@ -173,13 +180,15 @@
           <span class="va-mic">🎙</span>
         </button>
         <div id="va-status" class="va-status">اضغطي مرة وابدئي الحديث</div>
+        <div id="va-meta" class="va-meta">جاري التحقق من المحرك...</div>
       `;
       document.body.appendChild(root);
 
       return {
         root,
         button: root.querySelector('#va-fab'),
-        status: root.querySelector('#va-status')
+        status: root.querySelector('#va-status'),
+        meta: root.querySelector('#va-meta')
       };
     }
 
@@ -298,12 +307,27 @@
       };
     }
 
+
+    async verifyBackend() {
+      try {
+        const r = await fetch(`${SETTINGS.apiBase}/health`);
+        if (!r.ok) throw new Error('health');
+        const health = await r.json();
+        const engine = health.engine || 'unknown';
+        const eleven = health.elevenlabsConfigured ? 'ElevenLabs ✅' : 'ElevenLabs ❌';
+        this.setMeta(`المحرك: ${engine} | ${eleven}`);
+      } catch {
+        this.setMeta('تعذر الاتصال بالباكند');
+      }
+    }
+
     init() {
       if (!this.isProductPage()) return;
 
       this.state.ui = this.createUI();
       this.bindRecognition();
       this.bindDrag();
+      this.verifyBackend();
 
       this.state.ui.button.addEventListener('click', async (e) => {
         if (this.state.dragging) {

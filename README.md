@@ -12,7 +12,7 @@
 - Voice TTS عبر ElevenLabs (أساسي) + Browser fallback
 - شخصية بائعة جزائرية مقنعة
 - ذاكرة آخر 5 تفاعلات
-- Widget صغير قابل للسحب
+- Widget صغير قابل للسحب + حالة مباشرة للمحرك الصوتي
 - تحميل Lazy (non-blocking)
 - حماية أساسية: Rate limit + CORS allowlist
 
