@@ -65,7 +65,8 @@ GEMINI_PROJECT_NUMBER=102922610260
 
 Default backend URL:
 
-- `http://localhost:8787`
+- `https://unretired-update-cadet.ngrok-free.dev` (recommended for Shopify via ngrok)
+- `http://localhost:8787` (local direct testing)
 
 ### Endpoints
 
@@ -93,7 +94,7 @@ In Shopify Admin:
 Open `layout/theme.liquid` and insert before `</body>`:
 
 ```liquid
-{% render 'ai-voice-assistant', api_base: 'https://YOUR-BACKEND-DOMAIN.com' %}
+{% render 'ai-voice-assistant', api_base: 'https://unretired-update-cadet.ngrok-free.dev' %}
 ```
 
 > Replace with your deployed backend URL (must be HTTPS for production).
@@ -101,7 +102,7 @@ Open `layout/theme.liquid` and insert before `</body>`:
 ### C. Verify on Product Pages
 
 - Open any product page (`/products/...`)
-- You should see floating assistant on left middle
+- You should see a compact floating assistant button on left middle (draggable)
 - Click 🎤 once to start continuous voice conversation (tap same button again to stop)
 - Assistant listens/replies in Arabic (Darija-friendly), classifies intent, and may scroll/click add-to-cart
 

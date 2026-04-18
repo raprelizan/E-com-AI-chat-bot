@@ -86,11 +86,16 @@ function safeJsonParse(text) {
   }
 }
 
-function mostlyLatin(text = '') {
+function hasArabicChars(text = '') {
+  return /[\u0600-\u06FF]/.test(text);
+}
+
+function shouldReplaceReply(text = '') {
   const chars = (text || '').replace(/\s+/g, '');
-  if (!chars) return false;
+  if (!chars) return true;
   const latinCount = (chars.match(/[A-Za-z]/g) || []).length;
-  return latinCount / chars.length > 0.45;
+  const latinHeavy = latinCount / chars.length > 0.35;
+  return latinHeavy || !hasArabicChars(text);
 }
 
 function fallbackReply(intent, context = {}) {
@@ -120,7 +125,7 @@ function normalizeResponse(raw, payload) {
   }
 
   let reply = String(raw?.reply || '').trim();
-  if (!reply || mostlyLatin(reply)) {
+  if (!reply || shouldReplaceReply(reply)) {
     reply = fallbackReply(intent, payload.context || {});
   }
 

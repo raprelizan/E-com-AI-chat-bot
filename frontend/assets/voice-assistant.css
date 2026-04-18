@@ -7,39 +7,63 @@
   display: flex;
   align-items: center;
   gap: 8px;
+  user-select: none;
+  touch-action: none;
+}
+
+.va-dragging {
+  opacity: 0.92;
 }
 
 .va-fab {
-  width: 52px;
-  height: 52px;
+  width: 54px;
+  height: 54px;
   border: none;
   border-radius: 999px;
   cursor: pointer;
-  font-size: 20px;
   color: #fff;
-  background: linear-gradient(135deg, #8b5cf6, #6d28d9);
-  box-shadow: 0 10px 20px rgba(76, 29, 149, 0.32);
+  background: linear-gradient(145deg, #7c3aed, #4c1d95);
+  box-shadow: 0 10px 24px rgba(76, 29, 149, 0.36), inset 0 1px 2px rgba(255, 255, 255, 0.25);
   transition: transform 0.2s ease, box-shadow 0.2s ease;
+  display: grid;
+  place-items: center;
+  position: relative;
+}
+
+.va-dot {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #34d399;
+  box-shadow: 0 0 0 3px rgba(52, 211, 153, 0.2);
+}
+
+.va-mic {
+  font-size: 21px;
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.25));
 }
 
 .va-fab:hover {
-  transform: scale(1.04);
+  transform: scale(1.05);
 }
 
 .va-fab-active {
   animation: va-pulse 1.35s infinite;
-  box-shadow: 0 0 0 0 rgba(139, 92, 246, 0.6);
 }
 
 @keyframes va-pulse {
-  0% { box-shadow: 0 0 0 0 rgba(139, 92, 246, 0.65); }
-  70% { box-shadow: 0 0 0 16px rgba(139, 92, 246, 0); }
-  100% { box-shadow: 0 0 0 0 rgba(139, 92, 246, 0); }
+  0% { box-shadow: 0 0 0 0 rgba(124, 58, 237, 0.55), 0 10px 24px rgba(76, 29, 149, 0.36); }
+  70% { box-shadow: 0 0 0 16px rgba(124, 58, 237, 0), 0 10px 24px rgba(76, 29, 149, 0.36); }
+  100% { box-shadow: 0 0 0 0 rgba(124, 58, 237, 0), 0 10px 24px rgba(76, 29, 149, 0.36); }
 }
 
 .va-status {
-  max-width: 168px;
-  background: #fff;
+  max-width: 176px;
+  background: rgba(255, 255, 255, 0.96);
+  backdrop-filter: blur(6px);
   border: 1px solid #e9defe;
   border-radius: 999px;
   padding: 8px 12px;

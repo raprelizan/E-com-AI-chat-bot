@@ -1,6 +1,6 @@
 (() => {
   const CONFIG = window.ShopifyVoiceAssistantConfig || {};
-  const API_BASE = CONFIG.apiBase || 'http://localhost:8787';
+  const API_BASE = CONFIG.apiBase || 'https://unretired-update-cadet.ngrok-free.dev';
   const ASSISTANT_LANG = CONFIG.lang || 'ar-DZ';
   const TTS_LANG = (CONFIG.ttsLang || 'ar').toLowerCase();
   const MEMORY_KEY = 'shopify_voice_assistant_memory_v1';
@@ -11,7 +11,8 @@
     listening: false,
     speaking: false,
     recognition: null,
-    ui: null
+    ui: null,
+    drag: { enabled: false, startX: 0, startY: 0, startLeft: 14, startTop: 0 }
   };
 
   const actionMap = {
@@ -162,7 +163,7 @@
     const root = document.createElement('div');
     root.className = 'va-root';
     root.innerHTML = `
-      <button id="va-fab" class="va-fab" aria-label="assistant">🎤</button>
+      <button id="va-fab" class="va-fab" aria-label="assistant"><span class="va-dot"></span><span class="va-mic">🎙</span></button>
       <div id="va-status" class="va-status">اضغطي مرة لبدء الحديث</div>
     `;
     document.body.appendChild(root);
@@ -258,11 +259,58 @@
     };
   }
 
+
+  function enableDrag() {
+    const root = state.ui?.root;
+    if (!root) return;
+
+    const onMove = (clientX, clientY) => {
+      if (!state.drag.enabled) return;
+      const nextLeft = Math.max(8, state.drag.startLeft + (clientX - state.drag.startX));
+      const nextTop = Math.max(8, state.drag.startTop + (clientY - state.drag.startY));
+      root.style.left = `${nextLeft}px`;
+      root.style.top = `${nextTop}px`;
+      root.style.transform = 'none';
+    };
+
+    const start = (clientX, clientY) => {
+      const rect = root.getBoundingClientRect();
+      state.drag.enabled = true;
+      state.drag.startX = clientX;
+      state.drag.startY = clientY;
+      state.drag.startLeft = rect.left;
+      state.drag.startTop = rect.top;
+      root.classList.add('va-dragging');
+    };
+
+    const end = () => {
+      state.drag.enabled = false;
+      root.classList.remove('va-dragging');
+    };
+
+    root.addEventListener('mousedown', (e) => start(e.clientX, e.clientY));
+    window.addEventListener('mousemove', (e) => onMove(e.clientX, e.clientY));
+    window.addEventListener('mouseup', end);
+
+    root.addEventListener('touchstart', (e) => {
+      const t = e.touches[0];
+      if (!t) return;
+      start(t.clientX, t.clientY);
+    }, { passive: true });
+    window.addEventListener('touchmove', (e) => {
+      const t = e.touches[0];
+      if (!t) return;
+      onMove(t.clientX, t.clientY);
+    }, { passive: true });
+    window.addEventListener('touchend', end);
+  }
+
   function init() {
     if (!isProductPage()) return;
 
     state.ui = createWidget();
     bindRecognition();
+    enableDrag();
 
     state.ui.button.addEventListener('click', async () => {
       if (state.active) {
