@@ -58,7 +58,7 @@ Example `.env` (replace with your own real key):
 ```env
 PORT=8787
 GEMINI_API_KEY=REPLACE_WITH_YOUR_GEMINI_API_KEY
-GEMINI_MODEL=gemini-2.0-flash
+GEMINI_MODEL=gemini-2.5-flash
 GEMINI_PROJECT_NAME=projects/102922610260
 GEMINI_PROJECT_NUMBER=102922610260
 ```
@@ -102,9 +102,8 @@ Open `layout/theme.liquid` and insert before `</body>`:
 
 - Open any product page (`/products/...`)
 - You should see floating assistant on left middle
-- Click 🎤 once to start continuous voice conversation
+- Click 🎤 once to start continuous voice conversation (tap same button again to stop)
 - Assistant listens/replies in Arabic (Darija-friendly), classifies intent, and may scroll/click add-to-cart
-- Click ⏹ to fully stop
 
 ---
 

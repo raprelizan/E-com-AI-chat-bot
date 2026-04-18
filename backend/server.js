@@ -15,67 +15,58 @@ const ai = geminiApiKey ? new GoogleGenAI({ apiKey: geminiApiKey }) : null;
 const geminiProjectName = process.env.GEMINI_PROJECT_NAME || '';
 const geminiProjectNumber = process.env.GEMINI_PROJECT_NUMBER || '';
 
-const SYSTEM_PROMPT = `أنتِ نادية، بائعة جزائرية راقية لساعات نسائية فاخرة.
-النبرة: أنثوية ناعمة، مقنعة، مختصرة، ودائمًا بالعربية (يفضّل الدارجة الجزائرية المفهومة).
+const VALID_ACTIONS = new Set(['scroll_price', 'scroll_images', 'scroll_reviews', 'buy', 'none']);
+const VALID_INTENTS = new Set(['curious', 'hesitant', 'price inquiry', 'quality inquiry', 'ready to buy']);
 
-ستستلمين رسالة العميل + سياق صفحة المنتج + ذاكرة المحادثة.
-يجب أن يكون الخرج JSON فقط وبدون أي نص إضافي بالشكل التالي:
+const SYSTEM_PROMPT = `أنتِ "نادية"، بائعة جزائرية محترفة لساعات نسائية فاخرة.
+
+مهم جدًا:
+- الرد دائمًا بالعربية أو الدارجة الجزائرية فقط.
+- ممنوع الرد بالإنجليزية.
+- أسلوبك أنثوي، راقٍ، مقنع، ومباشر.
+- كل رد من 1 إلى 2 جمل قصار.
+- لا تختلقي معلومات غير موجودة في context.
+
+أرجعي JSON فقط بالشكل التالي:
 {
   "reply": "string",
-  "action": "scroll_price|scroll_images|scroll_reviews|buy|none",
   "intent": "curious|hesitant|price inquiry|quality inquiry|ready to buy",
-  "reasoning": "short explanation"
+  "action": "scroll_price|scroll_images|scroll_reviews|buy|none",
+  "reasoning": "string"
 }
 
-قواعد:
-- الرد دائمًا بالعربية أو الدارجة الجزائرية فقط (لا ترد بالإنجليزية).
-- الرد يكون 1 إلى 2 جمل.
-- إذا السؤال عن السعر: intent = price inquiry و action = scroll_price.
-- إذا السؤال عن الصور/الشكل: action = scroll_images.
-- إذا السؤال عن الجودة/الخامة/الضمان/التقييمات: action = scroll_reviews.
-- إذا العميل جاهز للشراء: intent = ready to buy و action = buy.
-- إذا غير واضح: action = none.
-- لا تختلقي معلومات غير موجودة في السياق.
+قواعد intent/action:
+1) إذا السؤال عن السعر/الثمن/الخصم => intent: price inquiry + action: scroll_price
+2) إذا السؤال عن الصور/الشكل/الألوان => action: scroll_images
+3) إذا السؤال عن الجودة/الخامة/الضمان/التقييمات => intent: quality inquiry + action: scroll_reviews
+4) إذا الزبون جاهز للشراء => intent: ready to buy + action: buy
+5) غير ذلك => action: none
 `;
 
-function ruleBasedFallback(userText = '') {
+function ruleBasedIntent(userText = '') {
   const text = userText.toLowerCase();
 
-  if (/(buy|take it|i want it|add to cart|i'll get it|i will get it|checkout|اشتري|شراء|خذيها|نخلص|سلة)/i.test(text)) {
-    return {
-      intent: 'ready to buy',
-      action: 'buy'
-    };
+  if (/(buy|checkout|i want it|add to cart|اشتري|شراء|نخلص|خلص|اضيفيها|السلة)/i.test(text)) {
+    return 'ready to buy';
   }
-  if (/(price|cost|how much|expensive|discount|السعر|الثمن|بشحال|قداش)/i.test(text)) {
-    return {
-      intent: 'price inquiry',
-      action: 'scroll_price'
-    };
+  if (/(price|cost|how much|discount|السعر|الثمن|بشحال|قداش|تخفيض)/i.test(text)) {
+    return 'price inquiry';
   }
-  if (/(quality|material|warranty|reviews|good|durable|authentic|الجودة|الخام|الخامة|الضمان|تقييم|مراجعات)/i.test(text)) {
-    return {
-      intent: 'quality inquiry',
-      action: 'scroll_reviews'
-    };
+  if (/(quality|material|warranty|reviews|authentic|الجودة|الخامة|الخام|الضمان|التقييم|مراجعات|اصلية)/i.test(text)) {
+    return 'quality inquiry';
   }
-  if (/(photo|image|look|design|color|style|صور|شكل|تصميم|لون)/i.test(text)) {
-    return {
-      intent: 'curious',
-      action: 'scroll_images'
-    };
+  if (/(not sure|hesitant|later|maybe|مش متأكد|مترددة|محتارة|بعد)/i.test(text)) {
+    return 'hesitant';
   }
-  if (/(not sure|hesitant|maybe|later|think|مش متأكد|محتار|بعد|لاحقا)/i.test(text)) {
-    return {
-      intent: 'hesitant',
-      action: 'none'
-    };
-  }
+  return 'curious';
+}
 
-  return {
-    intent: 'curious',
-    action: 'none'
-  };
+function actionFromIntent(intent = 'curious', text = '') {
+  if (intent === 'ready to buy') return 'buy';
+  if (intent === 'price inquiry') return 'scroll_price';
+  if (intent === 'quality inquiry') return 'scroll_reviews';
+  if (/(photo|image|design|style|shape|صور|شكل|تصميم|الوان|لون)/i.test(text)) return 'scroll_images';
+  return 'none';
 }
 
 function safeJsonParse(text) {
@@ -95,14 +86,59 @@ function safeJsonParse(text) {
   }
 }
 
-function buildFallbackResponse(payload) {
-  const fallback = ruleBasedFallback(payload.message || '');
-  const productName = payload.context?.title || 'this piece';
+function mostlyLatin(text = '') {
+  const chars = (text || '').replace(/\s+/g, '');
+  if (!chars) return false;
+  const latinCount = (chars.match(/[A-Za-z]/g) || []).length;
+  return latinCount / chars.length > 0.45;
+}
+
+function fallbackReply(intent, context = {}) {
+  const title = context.title || 'الساعة';
+  const price = context.price || 'متوفر في الصفحة';
+
+  const variants = {
+    'ready to buy': `ممتاز ✨ ${title} اختيار راقٍ، نقدر نضيفها مباشرة للسلة الآن إذا حبيتي.`,
+    'price inquiry': `أكيد 👌 سعر ${title} ظاهر في الصفحة: ${price}. إذا تحبي نوديك مباشرة لمكان السعر.`,
+    'quality inquiry': `من ناحية الجودة، نقدر نوجّهك حالًا لقسم التقييمات والمراجعات باش تشوفي آراء الزبونات.`,
+    hesitant: `عادي خذي وقتك 💜 إذا تحبي نعاونك خطوة بخطوة ونبدأ بالسعر أو الصور.`,
+    curious: `يا هلا 💫 قوليلي بالضبط وش تحبي تعرفي على ${title}: السعر، الصور، ولا الجودة؟`
+  };
+
+  return variants[intent] || variants.curious;
+}
+
+function normalizeResponse(raw, payload) {
+  const userText = payload.message || '';
+  const fallbackIntent = ruleBasedIntent(userText);
+
+  const intent = VALID_INTENTS.has(raw?.intent) ? raw.intent : fallbackIntent;
+  let action = VALID_ACTIONS.has(raw?.action) ? raw.action : actionFromIntent(intent, userText);
+
+  if (!VALID_ACTIONS.has(action)) {
+    action = actionFromIntent(intent, userText);
+  }
+
+  let reply = String(raw?.reply || '').trim();
+  if (!reply || mostlyLatin(reply)) {
+    reply = fallbackReply(intent, payload.context || {});
+  }
+
   return {
-    reply: `خيار رائع 👌 بالنسبة لـ ${productName}، نقدر نوريك السعر أو الصور أو التقييمات، وإذا حبيتي نضيفها مباشرة للسلة.`,
-    action: fallback.action,
-    intent: fallback.intent,
-    reasoning: 'Fallback classification used because AI response was unavailable.'
+    reply,
+    intent,
+    action,
+    reasoning: String(raw?.reasoning || 'normalized response')
+  };
+}
+
+function buildFallbackResponse(payload) {
+  const intent = ruleBasedIntent(payload.message || '');
+  return {
+    reply: fallbackReply(intent, payload.context || {}),
+    action: actionFromIntent(intent, payload.message || ''),
+    intent,
+    reasoning: 'Rule fallback used'
   };
 }
 
@@ -111,6 +147,7 @@ app.get('/health', (_req, res) => {
     ok: true,
     service: 'shopify-ai-voice-assistant',
     geminiConfigured: Boolean(geminiApiKey),
+    model: process.env.GEMINI_MODEL || 'gemini-2.5-flash',
     project: geminiProjectName || undefined,
     projectNumber: geminiProjectNumber || undefined
   });
@@ -128,45 +165,38 @@ app.post('/chat', async (req, res) => {
   }
 
   try {
-    const userBlob = {
-      message: payload.message,
-      memory: payload.memory || [],
-      context: payload.context || {}
-    };
-
     const response = await ai.models.generateContent({
-      model: process.env.GEMINI_MODEL || 'gemini-2.0-flash',
+      model: process.env.GEMINI_MODEL || 'gemini-2.5-flash',
       config: {
         systemInstruction: SYSTEM_PROMPT,
         responseMimeType: 'application/json',
-        temperature: 0.4
+        temperature: 0.2,
+        topP: 0.8
       },
       contents: [
         {
           role: 'user',
-          parts: [{ text: JSON.stringify(userBlob) }]
+          parts: [
+            {
+              text: JSON.stringify({
+                message: payload.message,
+                memory: payload.memory || [],
+                locale: payload.locale || 'ar-DZ',
+                responseLanguage: payload.responseLanguage || 'algerian_arabic',
+                context: payload.context || {}
+              })
+            }
+          ]
         }
       ]
     });
 
-    const text = response.text || '{}';
-    const parsed = safeJsonParse(text);
+    const parsed = safeJsonParse(response.text || '{}');
+    const normalized = normalizeResponse(parsed, payload);
 
-    if (!parsed || !parsed.reply || !parsed.intent || !parsed.action) {
-      return res.json(buildFallbackResponse(payload));
-    }
-
-    const validActions = new Set(['scroll_price', 'scroll_images', 'scroll_reviews', 'buy', 'none']);
-    const validIntents = new Set(['curious', 'hesitant', 'price inquiry', 'quality inquiry', 'ready to buy']);
-
-    res.json({
-      reply: String(parsed.reply),
-      action: validActions.has(parsed.action) ? parsed.action : 'none',
-      intent: validIntents.has(parsed.intent) ? parsed.intent : 'curious',
-      reasoning: String(parsed.reasoning || 'AI classified message')
-    });
-  } catch (error) {
-    res.json(buildFallbackResponse(payload));
+    return res.json(normalized);
+  } catch {
+    return res.json(buildFallbackResponse(payload));
   }
 });
 

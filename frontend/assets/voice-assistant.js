@@ -10,7 +10,8 @@
     active: false,
     listening: false,
     speaking: false,
-    recognition: null
+    recognition: null,
+    ui: null
   };
 
   const actionMap = {
@@ -79,10 +80,10 @@
     setTimeout(() => addButton.click(), 250);
   }
 
-  function pickArabicFemaleVoice() {
+  function pickVoice() {
     const voices = speechSynthesis.getVoices();
-    return voices.find((v) => /ar|arabic/i.test(v.lang) && /female|amira|zira|sara|google/i.test(v.name))
-      || voices.find((v) => /ar|arabic/i.test(v.lang))
+    return voices.find((v) => /ar/i.test(v.lang) && /female|amira|zira|sara|google/i.test(v.name))
+      || voices.find((v) => /ar/i.test(v.lang))
       || voices.find((v) => /female|zira|samantha/i.test(v.name));
   }
 
@@ -95,21 +96,29 @@
 
       const utterance = new SpeechSynthesisUtterance(text);
       utterance.lang = ASSISTANT_LANG;
-      utterance.rate = 0.93;
-      utterance.pitch = 1.05;
-      const voice = pickArabicFemaleVoice();
+      utterance.rate = 0.9;
+      utterance.pitch = 1.02;
+      const voice = pickVoice();
       if (voice) utterance.voice = voice;
-      utterance.onend = () => resolve();
-      utterance.onerror = () => resolve();
-
+      utterance.onend = resolve;
+      utterance.onerror = resolve;
       speechSynthesis.cancel();
       speechSynthesis.speak(utterance);
     });
   }
 
-  async function speak(text, ui) {
+  function setStatus(text) {
+    if (state.ui?.status) state.ui.status.textContent = text;
+  }
+
+  function setActiveVisual(active) {
+    if (!state.ui?.button) return;
+    state.ui.button.classList.toggle('va-fab-active', active);
+  }
+
+  async function speak(text) {
     state.speaking = true;
-    ui.status.textContent = 'نادية تتكلم الآن...';
+    setStatus('نادية تتكلم...');
 
     try {
       const ttsResponse = await fetch(`${API_BASE}/tts?lang=${encodeURIComponent(TTS_LANG)}&text=${encodeURIComponent(text)}`);
@@ -151,21 +160,17 @@
 
   function createWidget() {
     const root = document.createElement('div');
-    root.className = 'va-widget';
+    root.className = 'va-root';
     root.innerHTML = `
-      <div class="va-avatar">نادية</div>
-      <div class="va-status" id="va-status">اضغط 🎤 لبدء المحادثة الصوتية</div>
-      <div class="va-actions">
-        <button id="va-mic" class="va-btn" aria-label="start voice">🎤</button>
-        <button id="va-stop" class="va-btn va-btn-stop" aria-label="stop">⏹</button>
-      </div>
+      <button id="va-fab" class="va-fab" aria-label="assistant">🎤</button>
+      <div id="va-status" class="va-status">اضغطي مرة لبدء الحديث</div>
     `;
     document.body.appendChild(root);
 
     return {
-      status: root.querySelector('#va-status'),
-      mic: root.querySelector('#va-mic'),
-      stop: root.querySelector('#va-stop')
+      root,
+      button: root.querySelector('#va-fab'),
+      status: root.querySelector('#va-status')
     };
   }
 
@@ -173,35 +178,40 @@
     return /\/products\//.test(location.pathname) || !!document.querySelector('form[action*="/cart/add"]');
   }
 
-  function safeStartListening(ui) {
+  function safeStartListening() {
     if (!state.active || state.listening || state.speaking || !state.recognition) return;
     try {
       state.recognition.start();
       state.listening = true;
-      ui.status.textContent = 'أنا نسمع لك...';
+      setStatus('نسمع لك...');
     } catch {
-      setTimeout(() => safeStartListening(ui), 400);
+      setTimeout(safeStartListening, 300);
     }
   }
 
-  function stopAll(ui) {
+  function stopConversation() {
     state.active = false;
     state.listening = false;
     state.speaking = false;
+    setActiveVisual(false);
     if (state.recognition) {
       try { state.recognition.stop(); } catch {}
     }
     speechSynthesis.cancel();
-    ui.status.textContent = 'تم الإيقاف.';
+    setStatus('تم الإيقاف');
   }
 
-  function init() {
-    if (!isProductPage()) return;
+  async function startConversation() {
+    state.active = true;
+    setActiveVisual(true);
+    await speak('سلام، أنا نادية. قوليلي وش حابة تعرفي على هذي الساعة؟');
+    safeStartListening();
+  }
 
-    const ui = createWidget();
+  function bindRecognition() {
     const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!Recognition) {
-      ui.status.textContent = 'المتصفح لا يدعم التعرف الصوتي.';
+      setStatus('المتصفح لا يدعم التعرف الصوتي');
       return;
     }
 
@@ -211,22 +221,11 @@
     recognition.continuous = false;
     recognition.interimResults = false;
 
-    ui.mic.addEventListener('click', async () => {
-      if (!state.active) {
-        state.active = true;
-        ui.status.textContent = 'بدأنا. تكلم براحتك.';
-        await speak('سلام، أنا نادية. قولي وش تحبي نعاونك؟', ui);
-      }
-      safeStartListening(ui);
-    });
-
-    ui.stop.addEventListener('click', () => stopAll(ui));
-
     recognition.onresult = async (event) => {
       state.listening = false;
       const transcript = event.results?.[0]?.[0]?.transcript?.trim();
       if (!transcript) {
-        if (state.active) safeStartListening(ui);
+        if (state.active) safeStartListening();
         return;
       }
 
@@ -235,34 +234,43 @@
       try {
         const ai = await sendChat(transcript);
         addMemoryEntry('assistant', ai.reply);
-
-        const execute = actionMap[ai.action] || actionMap.none;
-        execute();
-
-        await speak(ai.reply, ui);
+        (actionMap[ai.action] || actionMap.none)();
+        await speak(ai.reply);
       } catch {
-        await speak('سمحيلي، ما فهمتش مليح. عاودي السؤال بطريقة بسيطة.', ui);
+        await speak('سمحيلي، عاودي السؤال بطريقة أبسط.');
       }
 
-      if (state.active) {
-        setTimeout(() => safeStartListening(ui), 450);
-      }
+      if (state.active) setTimeout(safeStartListening, 450);
     };
 
     recognition.onerror = async () => {
       state.listening = false;
-      if (state.active) {
-        await speak('ما قدرتش نسمع مليح. عاودي من فضلك.', ui);
-        safeStartListening(ui);
-      }
+      if (!state.active) return;
+      await speak('ما سمعتش مليح. عاودي من فضلك.');
+      safeStartListening();
     };
 
     recognition.onend = () => {
       state.listening = false;
       if (state.active && !state.speaking) {
-        setTimeout(() => safeStartListening(ui), 350);
+        setTimeout(safeStartListening, 320);
       }
     };
+  }
+
+  function init() {
+    if (!isProductPage()) return;
+
+    state.ui = createWidget();
+    bindRecognition();
+
+    state.ui.button.addEventListener('click', async () => {
+      if (state.active) {
+        stopConversation();
+        return;
+      }
+      await startConversation();
+    });
   }
 
   if (document.readyState === 'loading') {
