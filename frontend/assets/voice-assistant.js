@@ -105,6 +105,14 @@
       this.state.ui?.button?.classList.toggle('va-fab-active', active);
     }
 
+
+    buildHeaders(extra = {}) {
+      return {
+        'ngrok-skip-browser-warning': 'true',
+        ...extra
+      };
+    }
+
     pickVoice() {
       const voices = speechSynthesis.getVoices();
       return voices.find((v) => /ar/i.test(v.lang) && /female|amira|zira|sara|google/i.test(v.name))
@@ -133,7 +141,7 @@
       this.setStatus('نادية تتكلم...');
 
       try {
-        const r = await fetch(`${SETTINGS.apiBase}/tts?lang=${encodeURIComponent(SETTINGS.ttsLang)}&text=${encodeURIComponent(text)}`);
+        const r = await fetch(`${SETTINGS.apiBase}/tts?lang=${encodeURIComponent(SETTINGS.ttsLang)}&text=${encodeURIComponent(text)}`, { headers: this.buildHeaders() });
         if (!r.ok) throw new Error('tts');
         const data = await r.json();
         this.state.provider = data.provider || 'unknown';
@@ -163,7 +171,7 @@
 
       const r = await fetch(`${SETTINGS.apiBase}/chat`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: this.buildHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify(payload)
       });
 
@@ -310,7 +318,7 @@
 
     async verifyBackend() {
       try {
-        const r = await fetch(`${SETTINGS.apiBase}/health`);
+        const r = await fetch(`${SETTINGS.apiBase}/health`, { headers: this.buildHeaders() });
         if (!r.ok) throw new Error('health');
         const health = await r.json();
         const engine = health.engine || 'unknown';
