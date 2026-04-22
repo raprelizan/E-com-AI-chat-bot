@@ -6,7 +6,8 @@
     lang: CONFIG.lang || 'ar-DZ',
     ttsLang: CONFIG.ttsLang || 'ar',
     memoryLimit: 5,
-    memoryKey: 'shopify_voice_assistant_memory_v2'
+    memoryKey: 'shopify_voice_assistant_memory_v2',
+    sessionKey: 'shopify_voice_assistant_session_v1'
   };
 
   class VoiceSalesAssistant {
@@ -51,6 +52,20 @@
       const memory = this.loadMemory();
       memory.push({ role, text, ts: Date.now() });
       this.saveMemory(memory);
+    }
+
+
+    getSessionId() {
+      let id = localStorage.getItem(SETTINGS.sessionKey);
+      if (!id) {
+        id = `sess_${Math.random().toString(36).slice(2, 10)}_${Date.now()}`;
+        localStorage.setItem(SETTINGS.sessionKey, id);
+      }
+      return id;
+    }
+
+    setSessionId(id) {
+      if (id) localStorage.setItem(SETTINGS.sessionKey, id);
     }
 
     getPageContext() {
@@ -166,7 +181,8 @@
         message,
         locale: SETTINGS.lang,
         memory: this.loadMemory(),
-        context: this.getPageContext()
+        context: this.getPageContext(),
+        session_id: this.getSessionId()
       };
 
       const r = await fetch(`${SETTINGS.apiBase}/chat`, {
@@ -292,7 +308,11 @@
 
         try {
           const ai = await this.sendChat(transcript);
+          this.setSessionId(ai.session_id);
           this.pushMemory('assistant', ai.reply || '');
+          if (ai.analytics?.user_intent && ai.analytics?.conversion_stage) {
+            console.debug('sales_analytics', ai.analytics);
+          }
           (this.actions[ai.action] || this.actions.none)();
           await this.speak(ai.reply || 'سمحيلي، عاودي السؤال.');
         } catch {

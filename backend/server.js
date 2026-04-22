@@ -2,6 +2,9 @@ import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import googleTTS from 'google-tts-api';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const app = express();
 const PORT = Number(process.env.PORT || 8787);
@@ -11,8 +14,14 @@ const ELEVENLABS_VOICE_ID = process.env.ELEVENLABS_VOICE_ID || 'EXAVITQu4vr4xnSD
 const ELEVENLABS_MODEL_ID = process.env.ELEVENLABS_MODEL_ID || 'eleven_multilingual_v2';
 
 const ACTIONS = ['scroll_price', 'scroll_images', 'scroll_reviews', 'buy', 'none'];
-const INTENTS = ['curious', 'hesitant', 'price inquiry', 'quality inquiry', 'ready to buy'];
 const MAX_MEMORY = 5;
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const productsPath = path.join(__dirname, 'data', 'products.json');
+const PRODUCT_KB = JSON.parse(fs.readFileSync(productsPath, 'utf8'));
+
+const SESSION_STORE = new Map();
 
 const allowedOrigins = (process.env.ALLOWED_ORIGINS || '')
   .split(',')
@@ -34,7 +43,7 @@ function rateLimit(req, res, next) {
   const ip = req.headers['x-forwarded-for']?.toString().split(',')[0] || req.socket.remoteAddress || 'unknown';
   const now = Date.now();
   const windowMs = 60_000;
-  const maxReq = 45;
+  const maxReq = 50;
   const entry = rateBucket.get(ip) || { count: 0, resetAt: now + windowMs };
 
   if (now > entry.resetAt) {
@@ -50,6 +59,10 @@ function rateLimit(req, res, next) {
   }
 
   return next();
+}
+
+function createSessionId() {
+  return `sess_${Math.random().toString(36).slice(2, 10)}_${Date.now()}`;
 }
 
 function hashSeed(value = '') {
@@ -70,6 +83,104 @@ function normalizeText(text = '') {
   return String(text).replace(/\s+/g, ' ').trim().toLowerCase();
 }
 
+function detectIntent(message = '') {
+  const text = message.toLowerCase();
+  if (/(buy|checkout|اشتري|شراء|نخلص|خلص|سلة)/i.test(text)) return 'buy';
+  if (/(compare|افضل|مقارنة|فرق)/i.test(text)) return 'compare';
+  if (/(support|مشكل|problem|help|مساعدة)/i.test(text)) return 'support';
+  return 'browse';
+}
+
+function conversionStage(message = '') {
+  const text = message.toLowerCase();
+  if (/(buy|checkout|اشتري|نخلص|حجز)/i.test(text)) return 'decision';
+  if (/(price|سعر|افضل|quality|جودة|مقارنة)/i.test(text)) return 'consideration';
+  return 'awareness';
+}
+
+function mapAction(message = '', intent = 'browse') {
+  const text = message.toLowerCase();
+  if (intent === 'buy') return 'buy';
+  if (/(price|سعر|ثمن|بشحال|قداش)/i.test(text)) return 'scroll_price';
+  if (/(صور|شكل|design|image|photo|ستايل)/i.test(text)) return 'scroll_images';
+  if (/(review|rating|تقييم|جودة|ضمان)/i.test(text)) return 'scroll_reviews';
+  return 'none';
+}
+
+function extractProfile(session, message = '') {
+  const text = String(message);
+
+  const nameMatch = text.match(/(?:اسمي|انا اسمي|my name is)\s+([\p{L}A-Za-z]{2,20})/iu);
+  if (nameMatch) session.profile.name = nameMatch[1];
+
+  const budgetMatch = text.match(/(?:under|less than|budget|ميزانيتي|اقل من)\s*\$?\s*(\d{2,4})/i);
+  if (budgetMatch) session.profile.budget = Number(budgetMatch[1]);
+
+  const prefKeywords = ['gold', 'black', 'rose', 'luxury', 'classic', 'minimal', 'ذهبي', 'اسود', 'فاخر', 'كلاسيك'];
+  prefKeywords.forEach((k) => {
+    if (text.toLowerCase().includes(k.toLowerCase())) session.profile.preferences.add(k);
+  });
+}
+
+function retrieveProducts(message = '', session) {
+  const text = message.toLowerCase();
+  const budget = session.profile.budget || Infinity;
+  const prefs = [...session.profile.preferences];
+
+  const scored = PRODUCT_KB.map((p) => {
+    let score = 0;
+
+    if (p.price <= budget) score += 3;
+    if (p.rating >= 4.8) score += 2;
+    if (p.stock <= 8) score += 1;
+
+    p.tags.forEach((tag) => {
+      if (text.includes(tag.toLowerCase())) score += 3;
+    });
+
+    prefs.forEach((pref) => {
+      if (p.tags.some((t) => t.toLowerCase() === pref.toLowerCase())) score += 2;
+    });
+
+    if (!Number.isFinite(budget)) score += 1;
+
+    return { product: p, score };
+  })
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 3)
+    .map((x) => x.product);
+
+  return scored;
+}
+
+function formatProductLine(p, session) {
+  const why = p.benefits[0] || 'اختيار ممتاز';
+  const budgetFit = session.profile.budget ? (p.price <= session.profile.budget ? 'يناسب ميزانيتك' : 'أعلى شوية من ميزانيتك') : 'خيار مطلوب بزاف';
+  return `• ${p.name} — $${p.price} | ${why} | ${budgetFit}`;
+}
+
+function buildSalesReply(message, session, products) {
+  const namePart = session.profile.name ? `${session.profile.name}، ` : '';
+  const intro = `${namePart}فهمت عليك 👌`;
+
+  if (!products.length) {
+    return `${intro} ما نقدرش نوصي بدون منتج مناسب الآن. عطيني ميزانية أو ستايل تحبيه.`;
+  }
+
+  const lines = products.map((p) => formatProductLine(p, session)).join('\n');
+  const trust = pick([
+    'المنتج هذا عليه طلب قوي هاد الأيام.',
+    'كثير زبونات اختاروه بسبب الجودة والسعر.',
+    'عنده تقييم ممتاز وضمان يطمن.'
+  ], message);
+
+  const urgency = products[0].stock <= 8
+    ? 'الكمية محدودة حاليًا، الأفضل تاخذي القرار اليوم.'
+    : 'إذا تحبي نبدأ بالأفضل فيهم ونمشي مباشرة للسلة.';
+
+  return `${intro}\n${lines}\n${trust} ${urgency}`;
+}
+
 function repeatedReply(reply = '', memory = []) {
   const normalized = normalizeText(reply);
   if (!normalized) return false;
@@ -77,106 +188,87 @@ function repeatedReply(reply = '', memory = []) {
   return lastAssistant.includes(normalized);
 }
 
-function detectIntent(message = '') {
-  const text = message.toLowerCase();
+function runAgent(payload = {}, session) {
+  const message = String(payload.message || '');
 
-  if (/(اشتري|شراء|نخلص|خلص|سلة|add to cart|buy|checkout)/i.test(text)) return 'ready to buy';
-  if (/(سعر|ثمن|بشحال|قداش|خصم|price|cost|discount)/i.test(text)) return 'price inquiry';
-  if (/(جودة|خامة|خام|ضمان|تقييم|review|quality|material|warranty)/i.test(text)) return 'quality inquiry';
-  if (/(مترددة|محتارة|مش متأكد|later|maybe|hesitant)/i.test(text)) return 'hesitant';
-  return 'curious';
-}
+  extractProfile(session, message);
+  const products = retrieveProducts(message, session);
 
-function mapAction(intent, message = '') {
-  if (intent === 'ready to buy') return 'buy';
-  if (intent === 'price inquiry') return 'scroll_price';
-  if (intent === 'quality inquiry') return 'scroll_reviews';
-  if (/(صور|شكل|تصميم|لون|image|photo|design|style)/i.test(message)) return 'scroll_images';
-  return 'none';
-}
-
-function craftReply(intent, context = {}, message = '') {
-  const product = context.title || 'هاد الساعة';
-  const price = context.price || 'مبيّن في الصفحة';
-
-  if (/(مرحبا|السلام|اهلا|hello|hi)/i.test(message)) {
-    return pick([
-      'يا هلا 💜 أنا نادية. تحبي نبدأ بالسعر ولا الجودة ولا الصور؟',
-      'مرحبا بيك 🌸 نقدر نعاونك خطوة بخطوة حتى تختاري براحة.'
-    ], message);
-  }
-
-  if (/(شحن|توصيل|delivery|وصل)/i.test(message)) {
-    return 'أكيد، نقدر نعاونك بمعلومات التوصيل المتوفرة قبل إتمام الطلب.';
-  }
-
-  const variants = {
-    'ready to buy': [
-      `ممتاز ✨ ${product} اختيار راقٍ، نضيفه للسلة الآن؟`,
-      'جاهزين 👌 نكملك مباشرة بخطوة الشراء.'
-    ],
-    'price inquiry': [
-      `السعر ظاهر في الصفحة (${price})، نوديك مباشرة لمكانه؟`,
-      'أكيد، نقدر نوجّهك حالًا لقسم السعر.'
-    ],
-    'quality inquiry': [
-      'نقدر نوجّهك لقسم التقييمات والمراجعات باش تاخذي قرار واثق.',
-      'خليني نوريك الجودة والمراجعات بالتفصيل.'
-    ],
-    hesitant: [
-      'عادي خذي وقتك 💜 نقدر نبدأ بأبسط نقطة: السعر أو الصور.',
-      'ماكان حتى ضغط، نعاونك بهدوء حتى تكوني مرتاحة.'
-    ],
-    curious: [
-      `قوليلي وش تحبي تعرفي على ${product}: السعر، الصور، الجودة، ولا الشراء؟`,
-      'تحبي نبدأ بالسعر ولا بالصور؟'
-    ]
+  const analytics = {
+    user_intent: detectIntent(message),
+    conversion_stage: conversionStage(message)
   };
 
-  return pick(variants[intent] || variants.curious, message);
-}
+  const action = mapAction(message, analytics.user_intent);
+  let reply = buildSalesReply(message, session, products);
 
-function runAssistant(payload = {}) {
-  const message = String(payload.message || '');
-  const memory = Array.isArray(payload.memory) ? payload.memory.slice(-MAX_MEMORY) : [];
-
-  let intent = detectIntent(message);
-  if (!INTENTS.includes(intent)) intent = 'curious';
-
-  let action = mapAction(intent, message);
-  if (!ACTIONS.includes(action)) action = 'none';
-
-  let reply = craftReply(intent, payload.context || {}, message);
-  if (repeatedReply(reply, memory)) {
-    reply = craftReply(intent, payload.context || {}, `${message}-${Date.now()}`);
+  if (repeatedReply(reply, session.history)) {
+    reply = `${reply}\nتحبي نرشحلك الأفضل مباشرة ونضيفه للسلة؟`;
   }
 
   return {
     reply,
-    intent,
-    action,
-    reasoning: 'rule-engine',
-    source: 'rule-engine'
+    action: ACTIONS.includes(action) ? action : 'none',
+    intent: analytics.user_intent,
+    reasoning: 'rule-engine-rag-like',
+    analytics,
+    products: products.map((p) => ({
+      id: p.id,
+      name: p.name,
+      price: p.price,
+      currency: p.currency,
+      rating: p.rating,
+      stock: p.stock,
+      warranty: p.warranty
+    }))
   };
 }
 
 app.get('/health', (_req, res) => {
   res.json({
     ok: true,
-    service: 'shopify-ai-voice-sales-assistant',
-    engine: 'rule-engine',
+    service: 'shopify-ai-sales-agent',
+    engine: 'rule-engine-rag-like',
     elevenlabsConfigured: Boolean(ELEVENLABS_API_KEY),
-    allowedOrigins: allowedOrigins.length ? allowedOrigins : ['*']
+    kbProducts: PRODUCT_KB.length,
+    activeSessions: SESSION_STORE.size
   });
 });
 
 app.post('/chat', rateLimit, (req, res) => {
   const payload = req.body || {};
+
   if (!payload.message || typeof payload.message !== 'string') {
     return res.status(400).json({ error: 'message is required' });
   }
 
-  return res.json(runAssistant(payload));
+  const sessionId = String(payload.session_id || createSessionId());
+  const session = SESSION_STORE.get(sessionId) || {
+    profile: {
+      name: '',
+      budget: null,
+      preferences: new Set()
+    },
+    history: []
+  };
+
+  const response = runAgent(payload, session);
+
+  session.history.push({ role: 'user', text: payload.message, ts: Date.now() });
+  session.history.push({ role: 'assistant', text: response.reply, ts: Date.now() });
+  session.history = session.history.slice(-MAX_MEMORY * 2);
+
+  SESSION_STORE.set(sessionId, session);
+
+  return res.json({
+    ...response,
+    session_id: sessionId,
+    memory: {
+      name: session.profile.name || null,
+      budget: session.profile.budget || null,
+      preferences: [...session.profile.preferences]
+    }
+  });
 });
 
 app.get('/tts', rateLimit, async (req, res) => {
@@ -232,5 +324,5 @@ app.get('/tts', rateLimit, async (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`Voice assistant backend running at http://localhost:${PORT}`);
+  console.log(`AI Sales Agent backend running at http://localhost:${PORT}`);
 });

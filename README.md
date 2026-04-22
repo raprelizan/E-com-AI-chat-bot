@@ -1,31 +1,27 @@
-# Shopify AI Voice Sales Assistant (Pro v2 - ElevenLabs Only)
+# Shopify AI Sales & CX Agent (ElevenLabs Voice)
 
-مساعد تسويقي صوتي احترافي لصفحات المنتجات في Shopify مع:
-- محادثة صوتية مستمرة (دارجة/عربية)
-- Intent + Action ذكي
-- تنفيذ آمن للأوامر على الصفحة (سعر/صور/مراجعات/شراء)
-- Backend rule-engine قوي + ElevenLabs TTS
+وكيل مبيعات وتجربة عملاء ذكي لصفحات المنتجات في Shopify.
 
-## المميزات الأساسية
+## ماذا يفعل الآن؟
 
-- Voice STT عبر Web Speech API
-- Voice TTS عبر ElevenLabs (أساسي) + Browser fallback
-- شخصية بائعة جزائرية مقنعة
-- ذاكرة آخر 5 تفاعلات
-- Widget صغير قابل للسحب + حالة مباشرة للمحرك الصوتي
-- يدعم تلقائيًا تجاوز صفحة تحذير ngrok (ERR_NGROK_6024) من داخل الواجهة
-- تحميل Lazy (non-blocking)
-- حماية أساسية: Rate limit + CORS allowlist
+- ✅ محادثة صوتية مستمرة
+- ✅ ذاكرة جلسة فعلية (الاسم/الميزانية/التفضيلات)
+- ✅ Product retrieval من قاعدة منتجات محلية (RAG-like)
+- ✅ توصيات مبيعات موجهة نحو الإغلاق
+- ✅ Action system: `scroll_price`, `scroll_images`, `scroll_reviews`, `buy`, `none`
+- ✅ Analytics tagging داخلي: `user_intent` + `conversion_stage`
+- ✅ ElevenLabs TTS أساسي + fallback
 
 ---
 
-## بنية المشروع
+## Project Structure
 
 ```
 backend/
   server.js
   package.json
   .env.example
+  data/products.json
 frontend/
   assets/
     voice-assistant.js
@@ -36,17 +32,16 @@ frontend/
 
 ---
 
-## 1) تشغيل الـ Backend
+## Backend Setup
 
 ```bash
 cd backend
 npm install
 cp .env.example .env
-# عدل ELEVENLABS_API_KEY + ALLOWED_ORIGINS
 npm run start
 ```
 
-ملف `.env` (مثال):
+### `.env` example
 
 ```env
 PORT=8787
@@ -56,21 +51,21 @@ ELEVENLABS_MODEL_ID=eleven_multilingual_v2
 ALLOWED_ORIGINS=https://your-store.myshopify.com,https://unretired-update-cadet.ngrok-free.dev
 ```
 
-Endpoints:
+### Endpoints
 - `GET /health`
 - `POST /chat`
-- `GET /tts?text=...&lang=ar` (ElevenLabs أولاً ثم fallback)
+- `GET /tts?text=...&lang=ar`
 
 ---
 
-## 2) ربطه مع Shopify
+## Shopify Install
 
-### ارفع الملفات التالية للثيم
-- `assets/voice-assistant.js`
-- `assets/voice-assistant.css`
-- `snippets/ai-voice-assistant.liquid`
+1. ارفع الملفات إلى الثيم:
+   - `assets/voice-assistant.js`
+   - `assets/voice-assistant.css`
+   - `snippets/ai-voice-assistant.liquid`
 
-### أضف في `layout/theme.liquid` قبل `</body>`
+2. أضف قبل `</body>` في `layout/theme.liquid`:
 
 ```liquid
 {% render 'ai-voice-assistant', api_base: 'https://unretired-update-cadet.ngrok-free.dev' %}
@@ -78,44 +73,35 @@ Endpoints:
 
 ---
 
-## 3) كيف يعمل
-
-1. نقرة على زر 🎙 تبدأ المحادثة
-2. نقرة ثانية توقف المحادثة
-3. النظام يسمع → يرسل `/chat` مع context + memory
-4. backend rule-engine يرجع `intent/action/reply`
-5. frontend ينفذ action آمن ويتكلم بالرد
-
-Action Contract:
+## Chat Contract
 
 ```json
 {
-  "reply": "...",
-  "intent": "curious|hesitant|price inquiry|quality inquiry|ready to buy",
+  "reply": "string",
+  "intent": "browse|compare|buy|support",
   "action": "scroll_price|scroll_images|scroll_reviews|buy|none",
-  "reasoning": "..."
+  "analytics": {
+    "user_intent": "browse|compare|buy|support",
+    "conversion_stage": "awareness|consideration|decision"
+  },
+  "products": [
+    { "id": "w1", "name": "...", "price": 79 }
+  ],
+  "session_id": "sess_...",
+  "memory": {
+    "name": "...",
+    "budget": 100,
+    "preferences": ["gold"]
+  }
 }
 ```
 
 ---
 
-## 4) لماذا هذا الإصدار أقوى
-
-- بدون Gemini نهائياً
-- ElevenLabs للصوت (احترافي)
-- منع تكرار الردود (anti-repeat)
-- rule-engine قوي للـ intent/action
-- واجهة مضغوطة احترافية قابلة للسحب
-
----
-
-## 5) فحص سريع
+## Quick Checks
 
 ```bash
-# backend syntax
 cd backend && npm run check
-
-# health
 curl https://unretired-update-cadet.ngrok-free.dev/health
 ```
 
