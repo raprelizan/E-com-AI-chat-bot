@@ -122,12 +122,33 @@ function extractProfile(session, message = '') {
   });
 }
 
-function retrieveProducts(message = '', session) {
+
+function buildContextCatalog(context = {}) {
+  if (!context?.title) return [];
+  return [{
+    id: 'live_product',
+    name: context.title,
+    category: 'women_watch',
+    price: Number(context.price_value) || 0,
+    currency: context.currency || 'DZD',
+    rating: context.reviews ? 4.8 : 4.5,
+    stock: context.available ? 6 : 0,
+    tags: [...(context.variants || []), ...(context.social_proof ? [context.social_proof] : [])].map((x) => String(x).toLowerCase()),
+    benefits: [
+      context.social_proof ? `ثقة اجتماعية: ${context.social_proof}` : 'تصميم فاخر',
+      context.available ? 'متوفر للطلب الآن' : 'حاليًا غير متوفر'
+    ],
+    warranty: 'حسب سياسة المتجر'
+  }];
+}
+
+function retrieveProducts(message = '', session, context = {}) {
   const text = message.toLowerCase();
   const budget = session.profile.budget || Infinity;
   const prefs = [...session.profile.preferences];
+  const catalog = [...buildContextCatalog(context), ...PRODUCT_KB];
 
-  const scored = PRODUCT_KB.map((p) => {
+  const scored = catalog.map((p) => {
     let score = 0;
 
     if (p.price <= budget) score += 3;
@@ -159,7 +180,7 @@ function formatProductLine(p, session) {
   return `• ${p.name} — $${p.price} | ${why} | ${budgetFit}`;
 }
 
-function buildSalesReply(message, session, products) {
+function buildSalesReply(message, session, products, context = {}) {
   const namePart = session.profile.name ? `${session.profile.name}، ` : '';
   const intro = `${namePart}فهمت عليك 👌`;
 
@@ -174,11 +195,18 @@ function buildSalesReply(message, session, products) {
     'عنده تقييم ممتاز وضمان يطمن.'
   ], message);
 
+  const availabilityNote = context.available === false
+    ? 'ملاحظة: المنتج الحالي ظاهر كغير متوفر الآن، نقدر نقترح بديل فورًا.'
+    : '';
+  const variantsNote = Array.isArray(context.variants) && context.variants.length
+    ? `الألوان/الخيارات المتوفرة: ${context.variants.slice(0, 4).join(' | ')}`
+    : '';
+
   const urgency = products[0].stock <= 8
     ? 'الكمية محدودة حاليًا، الأفضل تاخذي القرار اليوم.'
     : 'إذا تحبي نبدأ بالأفضل فيهم ونمشي مباشرة للسلة.';
 
-  return `${intro}\n${lines}\n${trust} ${urgency}`;
+  return `${intro}\n${lines}\n${variantsNote}\n${trust} ${urgency} ${availabilityNote}`.trim();
 }
 
 function repeatedReply(reply = '', memory = []) {
@@ -192,7 +220,7 @@ function runAgent(payload = {}, session) {
   const message = String(payload.message || '');
 
   extractProfile(session, message);
-  const products = retrieveProducts(message, session);
+  const products = retrieveProducts(message, session, payload.context || {});
 
   const analytics = {
     user_intent: detectIntent(message),
@@ -200,7 +228,7 @@ function runAgent(payload = {}, session) {
   };
 
   const action = mapAction(message, analytics.user_intent);
-  let reply = buildSalesReply(message, session, products);
+  let reply = buildSalesReply(message, session, products, payload.context || {});
 
   if (repeatedReply(reply, session.history)) {
     reply = `${reply}\nتحبي نرشحلك الأفضل مباشرة ونضيفه للسلة؟`;

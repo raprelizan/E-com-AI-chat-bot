@@ -68,17 +68,49 @@
       if (id) localStorage.setItem(SETTINGS.sessionKey, id);
     }
 
+
+    parsePrice(text = '') {
+      const clean = String(text).replace(/[^\d.,]/g, '').replace(/,/g, '');
+      const n = Number(clean);
+      return Number.isFinite(n) ? n : null;
+    }
+
+    extractVariants() {
+      const set = new Set();
+      document.querySelectorAll('select[name*="option"] option, .product-form__input input[type="radio"] + label, .product-form__input label').forEach((el) => {
+        const t = el.textContent?.trim();
+        if (t && t.length < 40) set.add(t);
+      });
+      return [...set].slice(0, 10);
+    }
+
+    extractSocialProofText() {
+      const txt = document.body?.innerText || '';
+      const match = txt.match(/\+?\s?\d{3,5}\s*(?:clientes|عميلات|زبونة|customer)/i);
+      return match ? match[0] : '';
+    }
+
     getPageContext() {
-      const titleEl = document.querySelector('h1.product__title, .product__title, h1');
+      const titleEl = document.querySelector('h1.product__title, .product__title h1, .product__title, h1');
       const priceEl = this.findPriceElement();
-      const imageEls = [...document.querySelectorAll('.product__media img, .product-gallery img, img.product__image')].slice(0, 6);
+      const imageEls = [...document.querySelectorAll('.product__media img, .product-gallery img, img.product__image, .thumbnail img')].slice(0, 10);
       const reviewsEl = this.findReviewsElement();
+      const addBtn = document.querySelector('form[action*="/cart/add"] [type="submit"], button[name="add"], .product-form__submit');
+      const variants = this.extractVariants();
+
+      const priceText = priceEl?.textContent?.trim() || document.querySelector('[itemprop="price"]')?.getAttribute('content') || '';
 
       return {
+        product_url: location.href,
         title: titleEl?.textContent?.trim() || document.title,
-        price: priceEl?.textContent?.trim() || '',
+        price_text: priceText,
+        price_value: this.parsePrice(priceText),
+        currency: document.querySelector('[itemprop="priceCurrency"]')?.getAttribute('content') || 'DZD',
+        available: !(addBtn?.disabled) && !/sold out|نفد|غير متوفر/i.test(addBtn?.textContent || ''),
+        variants,
+        social_proof: this.extractSocialProofText(),
         images: imageEls.map((img) => img.src).filter(Boolean),
-        reviews: reviewsEl?.textContent?.trim()?.slice(0, 500) || ''
+        reviews: reviewsEl?.textContent?.trim()?.slice(0, 1200) || ''
       };
     }
 

@@ -7,6 +7,7 @@
 - ✅ محادثة صوتية مستمرة
 - ✅ ذاكرة جلسة فعلية (الاسم/الميزانية/التفضيلات)
 - ✅ Product retrieval من قاعدة منتجات محلية (RAG-like)
+- ✅ Live page-context extraction (title/price/variants/reviews/social proof)
 - ✅ توصيات مبيعات موجهة نحو الإغلاق
 - ✅ Action system: `scroll_price`, `scroll_images`, `scroll_reviews`, `buy`, `none`
 - ✅ Analytics tagging داخلي: `user_intent` + `conversion_stage`
