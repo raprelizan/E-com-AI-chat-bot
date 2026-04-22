@@ -368,6 +368,9 @@
           if (ai.analytics?.user_intent && ai.analytics?.conversion_stage) {
             console.debug('sales_analytics', ai.analytics);
           }
+          if (ai.agent?.mode) {
+            console.debug('agent_orchestrator', ai.agent);
+          }
           (this.actions[ai.action] || this.actions.none)();
           await this.speak(ai.reply || 'سمحيلي، عاودي السؤال.');
         } catch {

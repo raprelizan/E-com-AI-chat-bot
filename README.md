@@ -1,4 +1,4 @@
-# Shopify AI Sales & CX Agent (ElevenLabs Voice)
+# Shopify Agentic AI Sales & CX Agent (ElevenLabs Voice)
 
 وكيل مبيعات وتجربة عملاء ذكي لصفحات المنتجات في Shopify.
 
@@ -9,6 +9,7 @@
 - ✅ Product retrieval من قاعدة منتجات محلية (RAG-like)
 - ✅ Live page-context extraction (title/price/variants/reviews/social proof)
 - ✅ توصيات مبيعات موجهة نحو الإغلاق
+- ✅ Agentic orchestration (Perceive → Retrieve → Decide → Compose)
 - ✅ Action system: `scroll_price`, `scroll_images`, `scroll_reviews`, `buy`, `none`
 - ✅ Analytics tagging داخلي: `user_intent` + `conversion_stage`
 - ✅ ElevenLabs TTS أساسي + fallback
@@ -89,6 +90,7 @@ ALLOWED_ORIGINS=https://your-store.myshopify.com,https://unretired-update-cadet.
     { "id": "w1", "name": "...", "price": 79 }
   ],
   "session_id": "sess_...",
+  "agent": { "mode": "agentic", "strategy": "...", "steps": ["perceive","retrieve_products","decide","compose"] },
   "memory": {
     "name": "...",
     "budget": 100,

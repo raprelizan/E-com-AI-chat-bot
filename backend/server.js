@@ -216,29 +216,49 @@ function repeatedReply(reply = '', memory = []) {
   return lastAssistant.includes(normalized);
 }
 
-function runAgent(payload = {}, session) {
+function runAgentic(payload = {}, session) {
   const message = String(payload.message || '');
+  const context = payload.context || {};
+  const trace = [];
 
+  // 1) Perceive
   extractProfile(session, message);
-  const products = retrieveProducts(message, session, payload.context || {});
-
   const analytics = {
     user_intent: detectIntent(message),
     conversion_stage: conversionStage(message)
   };
+  trace.push({ step: 'perceive', analytics, profile: {
+    name: session.profile.name || null,
+    budget: session.profile.budget || null,
+    preferences: [...session.profile.preferences]
+  } });
 
+  // 2) Retrieve candidates (tool call)
+  const products = retrieveProducts(message, session, context);
+  trace.push({ step: 'retrieve_products', count: products.length, top: products[0]?.name || null });
+
+  // 3) Decide strategy + page action (tool call)
   const action = mapAction(message, analytics.user_intent);
-  let reply = buildSalesReply(message, session, products, payload.context || {});
+  const strategy = analytics.user_intent === 'buy'
+    ? 'close_now'
+    : analytics.conversion_stage === 'consideration'
+      ? 'compare_and_reassure'
+      : 'qualify_then_push';
+  trace.push({ step: 'decide', action, strategy });
 
+  // 4) Compose sales response (tool call)
+  let reply = buildSalesReply(message, session, products, context);
   if (repeatedReply(reply, session.history)) {
-    reply = `${reply}\nتحبي نرشحلك الأفضل مباشرة ونضيفه للسلة؟`;
+    reply = `${reply}
+تحبي نثبتلك أفضل خيار ونضيفه للسلة مباشرة؟`;
   }
+  trace.push({ step: 'compose', chars: reply.length });
 
   return {
     reply,
     action: ACTIONS.includes(action) ? action : 'none',
     intent: analytics.user_intent,
-    reasoning: 'rule-engine-rag-like',
+    reasoning: 'agentic-sales-orchestrator',
     analytics,
     products: products.map((p) => ({
       id: p.id,
@@ -248,7 +268,12 @@ function runAgent(payload = {}, session) {
       rating: p.rating,
       stock: p.stock,
       warranty: p.warranty
-    }))
+    })),
+    agent: {
+      mode: 'agentic',
+      strategy,
+      steps: trace.map((x) => x.step)
+    }
   };
 }
 
@@ -256,7 +281,7 @@ app.get('/health', (_req, res) => {
   res.json({
     ok: true,
     service: 'shopify-ai-sales-agent',
-    engine: 'rule-engine-rag-like',
+    engine: 'agentic-rule-engine',
     elevenlabsConfigured: Boolean(ELEVENLABS_API_KEY),
     kbProducts: PRODUCT_KB.length,
     activeSessions: SESSION_STORE.size
@@ -280,7 +305,7 @@ app.post('/chat', rateLimit, (req, res) => {
     history: []
   };
 
-  const response = runAgent(payload, session);
+  const response = runAgentic(payload, session);
 
   session.history.push({ role: 'user', text: payload.message, ts: Date.now() });
   session.history.push({ role: 'assistant', text: response.reply, ts: Date.now() });
