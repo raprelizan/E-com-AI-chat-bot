@@ -1,0 +1,50 @@
+[
+  {
+    "id": "w1",
+    "name": "Stillova Luna Gold",
+    "category": "women_watch",
+    "price": 79,
+    "currency": "USD",
+    "rating": 4.8,
+    "stock": 14,
+    "tags": ["gold", "elegant", "gift", "classic", "slim"],
+    "benefits": ["تصميم راقي يومي", "مقاومة ماء خفيفة", "مريحة في اللبس"],
+    "warranty": "12 months"
+  },
+  {
+    "id": "w2",
+    "name": "Stillova Noir Steel",
+    "category": "women_watch",
+    "price": 99,
+    "currency": "USD",
+    "rating": 4.9,
+    "stock": 7,
+    "tags": ["black", "luxury", "premium", "steel", "formal"],
+    "benefits": ["شكل فاخر للمناسبات", "خامة ستانلس ستيل", "متانة عالية"],
+    "warranty": "18 months"
+  },
+  {
+    "id": "w3",
+    "name": "Stillova Rose Mini",
+    "category": "women_watch",
+    "price": 65,
+    "currency": "USD",
+    "rating": 4.6,
+    "stock": 22,
+    "tags": ["rose", "small", "daily", "minimal"],
+    "benefits": ["خفيفة وصغيرة", "ستايل بسيط", "سعر ممتاز"],
+    "warranty": "12 months"
+  },
+  {
+    "id": "w4",
+    "name": "Stillova Crystal Edge",
+    "category": "women_watch",
+    "price": 120,
+    "currency": "USD",
+    "rating": 4.9,
+    "stock": 5,
+    "tags": ["crystal", "luxury", "party", "sparkle"],
+    "benefits": ["فخامة عالية", "تفاصيل كريستال جذابة", "اختيار شائع للهدايا"],
+    "warranty": "24 months"
+  }
+]

@@ -1,0 +1,33 @@
+{%- comment -%}
+  Shopify AI Voice Sales Assistant snippet (v2)
+  Usage:
+  {% render 'ai-voice-assistant', api_base: 'https://unretired-update-cadet.ngrok-free.dev' %}
+{%- endcomment -%}
+
+{%- if request.page_type == 'product' -%}
+  <link rel="stylesheet" href="{{ 'voice-assistant.css' | asset_url }}" media="print" onload="this.media='all'">
+  <noscript><link rel="stylesheet" href="{{ 'voice-assistant.css' | asset_url }}"></noscript>
+
+  <script>
+    window.ShopifyVoiceAssistantConfig = {
+      apiBase: {{ api_base | default: 'https://unretired-update-cadet.ngrok-free.dev' | json }},
+      lang: 'ar-DZ',
+      ttsLang: 'ar'
+    };
+
+    (function () {
+      function loadAssistant() {
+        var script = document.createElement('script');
+        script.src = {{ 'voice-assistant.js' | asset_url | json }};
+        script.defer = true;
+        document.head.appendChild(script);
+      }
+
+      if ('requestIdleCallback' in window) {
+        requestIdleCallback(loadAssistant, { timeout: 1600 });
+      } else {
+        setTimeout(loadAssistant, 350);
+      }
+    })();
+  </script>
+{%- endif -%}
