@@ -20,7 +20,8 @@
         recognition: null,
         ui: null,
         dragStart: null,
-        provider: 'unknown'
+        provider: 'unknown',
+        currentAudio: null
       };
 
       this.actions = {
@@ -187,6 +188,20 @@
       this.state.speaking = true;
       this.setStatus('نادية تتكلم...');
 
+      if (this.state.listening && this.state.recognition) {
+        try { this.state.recognition.stop(); } catch {}
+        this.state.listening = false;
+      }
+
+      if (this.state.currentAudio) {
+        try {
+          this.state.currentAudio.pause();
+          this.state.currentAudio.currentTime = 0;
+        } catch {}
+        this.state.currentAudio = null;
+      }
+      speechSynthesis.cancel();
+
       try {
         const r = await fetch(`${SETTINGS.apiBase}/tts?lang=${encodeURIComponent(SETTINGS.ttsLang)}&text=${encodeURIComponent(text)}`, { headers: this.buildHeaders() });
         if (!r.ok) throw new Error('tts');
@@ -197,9 +212,10 @@
 
         await new Promise((resolve) => {
           const audio = new Audio(data.url);
-          audio.onended = resolve;
-          audio.onerror = resolve;
-          audio.play().catch(resolve);
+          this.state.currentAudio = audio;
+          audio.onended = () => { this.state.currentAudio = null; resolve(); };
+          audio.onerror = () => { this.state.currentAudio = null; resolve(); };
+          audio.play().catch(() => { this.state.currentAudio = null; resolve(); });
         });
       } catch {
         await this.speakBrowser(text);
@@ -307,6 +323,13 @@
       this.state.speaking = false;
       this.setActiveVisual(false);
       this.state.recognition?.stop();
+      if (this.state.currentAudio) {
+        try {
+          this.state.currentAudio.pause();
+          this.state.currentAudio.currentTime = 0;
+        } catch {}
+        this.state.currentAudio = null;
+      }
       speechSynthesis.cancel();
       this.setStatus('تم الإيقاف');
     }
@@ -351,7 +374,7 @@
           await this.speak('سمحيلي، كاين مشكل تقني صغير. عاودي من فضلك.');
         }
 
-        if (this.state.active) setTimeout(() => this.safeStartListening(), 420);
+        if (this.state.active) setTimeout(() => this.safeStartListening(), 950);
       };
 
       recognition.onerror = async () => {
